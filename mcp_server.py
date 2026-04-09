@@ -186,9 +186,7 @@ async def create_table(
     description="Insert one or more rows into a table.",
     tags={"enabled"},
 )
-async def insert_rows(
-    data: dict[str, Any] | list[dict[str, Any]], table_name: str
-) -> dict[str, Any]:
+async def insert_rows(data: dict[str, Any] | list[dict[str, Any]], table_name: str) -> dict[str, Any]:
     """Insert rows into a table.
 
     Args:
@@ -293,9 +291,7 @@ async def select_one_row(
     description="Update rows in a table using data and where predicates.",
     tags={"enabled"},
 )
-async def update_rows(
-    table_name: str, data: dict[str, Any], where: dict[str, Any] | None = None
-) -> dict[str, Any]:
+async def update_rows(table_name: str, data: dict[str, Any], where: dict[str, Any] | None = None) -> dict[str, Any]:
     """Update rows matching WHERE criteria.
 
     Args:
@@ -308,9 +304,7 @@ async def update_rows(
     """
     method_name = "update_rows"
     try:
-        rowcount = sqlite_db.update(
-            table_name=table_name, data=data, where=where if where else {}
-        )
+        rowcount = sqlite_db.update(table_name=table_name, data=data, where=where if where else {})
         _commit(method_name)
         _log(method_name, f"updated {rowcount} row(s) in {table_name!r}")
         return {"ok": True, "rows_updated": rowcount}
@@ -325,9 +319,7 @@ async def update_rows(
     description="Delete rows from a table using where predicates.",
     tags={"enabled"},
 )
-async def delete_rows(
-    table_name: str, where: dict[str, Any] | None = None
-) -> dict[str, Any]:
+async def delete_rows(table_name: str, where: dict[str, Any] | None = None) -> dict[str, Any]:
     """Delete rows matching WHERE criteria.
 
     Args:
@@ -393,9 +385,7 @@ async def upsert_row(
     description="Count rows in a table with optional where predicates.",
     tags={"enabled"},
 )
-async def count_rows(
-    table_name: str, where: dict[str, Any] | None = None
-) -> dict[str, int]:
+async def count_rows(table_name: str, where: dict[str, Any] | None = None) -> dict[str, int]:
     """Count rows in a table.
 
     Args:
@@ -428,12 +418,91 @@ async def active_database() -> dict[str, str]:
     return {"db_path": db_path}
 
 
+@mcp.tool(
+    name="delete_table",
+    description="Delete (drop) a specific table from the database.",
+    tags={"enabled"},
+)
+async def delete_table(table_name: str) -> dict[str, Any]:
+    """Drop a table from the active database.
+
+    Args:
+        table_name (str): Name of the table to drop.
+
+    Returns:
+        dict[str, Any]: Operation status with table name.
+    """
+    method_name = "delete_table"
+    try:
+        cursor = sqlite_db.connection.cursor()
+        cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+        _commit(method_name)
+        _log(method_name, f"dropped table: {table_name!r}")
+        return {"ok": True, "table": table_name}
+    except Exception as error:
+        _rollback(method_name, error)
+        _log(method_name, f"error dropping table: {error}", "ERROR")
+        return {"ok": False, "error": str(error), "table": table_name}
+
+
+@mcp.tool(
+    name="flush_database",
+    description="Delete all tables from the database, effectively flushing all data.",
+    tags={"enabled"},
+)
+async def flush_database() -> dict[str, Any]:
+    """Drop all tables from the active database.
+
+    Returns:
+        dict[str, Any]: Operation status with list of dropped tables.
+    """
+    method_name = "flush_database"
+    try:
+        tables = sqlite_db.list_tables()
+        cursor = sqlite_db.connection.cursor()
+        for table in tables:
+            cursor.execute(f"DROP TABLE IF EXISTS {table}")
+        _commit(method_name)
+        _log(method_name, f"flushed {len(tables)} table(s)")
+        return {"ok": True, "tables_dropped": tables, "count": len(tables)}
+    except Exception as error:
+        _rollback(method_name, error)
+        _log(method_name, f"error flushing database: {error}", "ERROR")
+        return {"ok": False, "error": str(error)}
+
+
+@mcp.tool(
+    name="rename_table",
+    description="Rename a table in the database.",
+    tags={"enabled"},
+)
+async def rename_table(table_name: str, new_table_name: str) -> dict[str, Any]:
+    """Rename a table in the active database.
+
+    Args:
+        table_name (str): Current name of the table.
+        new_table_name (str): New name for the table.
+
+    Returns:
+        dict[str, Any]: Operation status with old and new table names.
+    """
+    method_name = "rename_table"
+    try:
+        cursor = sqlite_db.connection.cursor()
+        cursor.execute(f"ALTER TABLE {table_name} RENAME TO {new_table_name}")
+        _commit(method_name)
+        _log(method_name, f"renamed table {table_name!r} to {new_table_name!r}")
+        return {"ok": True, "old_name": table_name, "new_name": new_table_name}
+    except Exception as error:
+        _rollback(method_name, error)
+        _log(method_name, f"error renaming table: {error}", "ERROR")
+        return {"ok": False, "error": str(error), "table": table_name}
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="SQLite FastMCP server")
     parser.add_argument("--host", default=os.getenv("FASTMCP_HOST", "127.0.0.1"))
-    parser.add_argument(
-        "--port", type=int, default=int(os.getenv("FASTMCP_PORT", "8000"))
-    )
+    parser.add_argument("--port", type=int, default=int(os.getenv("FASTMCP_PORT", "8000")))
     parser.add_argument(
         "--path",
         default=os.getenv("FASTMCP_STREAMABLE_HTTP_PATH", "/mcp"),
@@ -456,5 +525,5 @@ if __name__ == "__main__":
         port=args.port,
         path=args.path,
         log_level="INFO",
-        stateless_http=False,
+        stateless_http=True,
     )

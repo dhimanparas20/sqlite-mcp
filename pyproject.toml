@@ -5,11 +5,16 @@ description = "A SQLite MCP server for database operations"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+    "colorlog>=6.10.1",
     "dotenv>=0.9.9",
     "fastmcp[tasks]>=3.2.2",
     "langchain>=1.2.15",
+    "langchain-core>=1.2.28",
+    "langchain-google-genai>=4.2.1",
+    "langchain-groq>=1.1.2",
     "langchain-mcp-adapters>=0.2.2",
     "langchain-openai>=1.1.12",
+    "langchain-openrouter>=0.2.1",
     "langgraph>=1.1.6",
     "loguru>=0.7.3",
 ]

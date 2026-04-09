@@ -1,0 +1,2 @@
+from modules.system_prompts.local_mcp_sqlit3_prompt import SYSTEM_PROMPT as LOCAL_MCP_SQLITE3_PROMPT
+from modules.system_prompts.general_prompt import SYSTEM_PROMPT as GENERAL_PROMPT

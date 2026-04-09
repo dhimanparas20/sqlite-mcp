@@ -9,3 +9,4 @@ __pycache__
 demo_*.db
 *.db-journal
 .env
+chat_history.json
