@@ -4,9 +4,12 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Any
+from modules.logger import get_logger
+
+logger = get_logger("[FILESYSTEM]")
 
 mcp = FastMCP("filesystem")
-ROOT = os.getenv("FILESYSTEM_ROOT", "D:\\0Coding")
+ROOT = os.getenv("FILESYSTEM_ROOT", "/mnt/d/0Coding")
 if ROOT.endswith("\\"):
     ROOT = ROOT[:-1]
 
@@ -22,6 +25,7 @@ def _format_size(size: int) -> str:
 def safe(path: str) -> str:
     full = os.path.normpath(os.path.join(ROOT, path))
     if not full.startswith(ROOT):
+        logger.warning(f"[safe] Access denied: {path} outside allowed directory")
         raise ValueError("Access denied: outside allowed directory")
     return full
 
@@ -31,7 +35,9 @@ def safe(path: str) -> str:
     description="List contents of a directory with optional filtering.",
     tags={"enabled"},
 )
-def list_directory(path: str = ".", pattern: str | None = None, include_hidden: bool = False) -> dict[str, Any]:
+def list_directory(
+    path: str = ".", pattern: str | None = None, include_hidden: bool = False
+) -> dict[str, Any]:
     """List contents of a directory.
 
     Args:
@@ -44,8 +50,10 @@ def list_directory(path: str = ".", pattern: str | None = None, include_hidden: 
     """
     full = safe(path)
     if not os.path.exists(full):
+        logger.error(f"[list_directory] Directory not found: {path}")
         return {"ok": False, "error": f"Directory not found: {path}"}
     if not os.path.isdir(full):
+        logger.error(f"[list_directory] Not a directory: {path}")
         return {"ok": False, "error": f"Not a directory: {path}"}
 
     items = []
@@ -68,6 +76,7 @@ def list_directory(path: str = ".", pattern: str | None = None, include_hidden: 
         )
 
     items.sort(key=lambda x: (not x["is_dir"], x["name"]))
+    logger.info(f"[list_directory] Listed {len(items)} items in {path}")
     return {"ok": True, "path": path, "items": items, "count": len(items)}
 
 
@@ -87,10 +96,12 @@ def get_file_info(path: str) -> dict[str, Any]:
     """
     full = safe(path)
     if not os.path.exists(full):
+        logger.error(f"[get_file_info] File not found: {path}")
         return {"ok": False, "error": f"File not found: {path}"}
 
     stat = os.stat(full)
     p = Path(full)
+    logger.info(f"[get_file_info] Retrieved info for: {path}")
     return {
         "ok": True,
         "name": p.name,
@@ -125,17 +136,21 @@ def read_file(path: str, max_size: int = 1024 * 1024) -> dict[str, Any]:
     """
     full = safe(path)
     if not os.path.exists(full):
+        logger.error(f"[read_file] File not found: {path}")
         return {"ok": False, "error": f"File not found: {path}"}
     if not os.path.isfile(full):
+        logger.error(f"[read_file] Not a file: {path}")
         return {"ok": False, "error": f"Not a file: {path}"}
 
     size = os.path.getsize(full)
     if size > max_size:
+        logger.error(f"[read_file] File too large: {size} bytes (max {max_size})")
         return {"ok": False, "error": f"File too large: {size} bytes (max {max_size})"}
 
     with open(full, "r", encoding="utf-8") as f:
         content = f.read()
 
+    logger.info(f"[read_file] Read {len(content)} chars from {path}")
     return {
         "ok": True,
         "path": path,
@@ -169,6 +184,7 @@ def write_file(path: str, content: str, create_dirs: bool = True) -> dict[str, A
     with open(full, "w", encoding="utf-8") as f:
         f.write(content)
 
+    logger.info(f"[write_file] Wrote {len(content)} chars to {path}")
     return {
         "ok": True,
         "path": path,
@@ -181,7 +197,9 @@ def write_file(path: str, content: str, create_dirs: bool = True) -> dict[str, A
     description="Create a new file with optional content.",
     tags={"enabled"},
 )
-def create_file(path: str, content: str = "", create_dirs: bool = True) -> dict[str, Any]:
+def create_file(
+    path: str, content: str = "", create_dirs: bool = True
+) -> dict[str, Any]:
     """Create a new file with optional content.
 
     Args:
@@ -198,6 +216,9 @@ def create_file(path: str, content: str = "", create_dirs: bool = True) -> dict[
         os.makedirs(os.path.dirname(full), exist_ok=True)
     else:
         if not os.path.exists(os.path.dirname(full)):
+            logger.error(
+                f"[create_file] Parent directory does not exist: {os.path.dirname(path)}"
+            )
             return {
                 "ok": False,
                 "error": f"Parent directory does not exist: {os.path.dirname(path)}",
@@ -206,6 +227,7 @@ def create_file(path: str, content: str = "", create_dirs: bool = True) -> dict[
     with open(full, "w", encoding="utf-8") as f:
         f.write(content)
 
+    logger.info(f"[create_file] Created file: {path}")
     return {"ok": True, "path": path, "size_bytes": len(content.encode("utf-8"))}
 
 
@@ -229,17 +251,21 @@ def copy_file(source: str, destination: str, overwrite: bool = False) -> dict[st
     dst = safe(destination)
 
     if not os.path.exists(src):
+        logger.error(f"[copy_file] Source not found: {source}")
         return {"ok": False, "error": f"Source not found: {source}"}
 
     if os.path.exists(dst) and not overwrite:
+        logger.error(f"[copy_file] Destination exists: {destination}")
         return {"ok": False, "error": f"Destination exists: {destination}"}
 
     if os.path.isdir(src):
         if os.path.exists(dst):
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
+        logger.info(f"[copy_file] Copied directory: {source} -> {destination}")
     else:
         shutil.copy2(src, dst)
+        logger.info(f"[copy_file] Copied file: {source} -> {destination}")
 
     return {"ok": True, "source": source, "destination": destination}
 
@@ -264,9 +290,11 @@ def move_file(source: str, destination: str, overwrite: bool = False) -> dict[st
     dst = safe(destination)
 
     if not os.path.exists(src):
+        logger.error(f"[move_file] Source not found: {source}")
         return {"ok": False, "error": f"Source not found: {source}"}
 
     if os.path.exists(dst) and not overwrite:
+        logger.error(f"[move_file] Destination exists: {destination}")
         return {"ok": False, "error": f"Destination exists: {destination}"}
 
     if os.path.exists(dst):
@@ -276,6 +304,7 @@ def move_file(source: str, destination: str, overwrite: bool = False) -> dict[st
             os.remove(dst)
 
     shutil.move(src, dst)
+    logger.info(f"[move_file] Moved: {source} -> {destination}")
     return {"ok": True, "source": source, "destination": destination}
 
 
@@ -296,12 +325,15 @@ def delete_file(path: str) -> dict[str, Any]:
     full = safe(path)
 
     if not os.path.exists(full):
+        logger.error(f"[delete_file] Path not found: {path}")
         return {"ok": False, "error": f"Path not found: {path}"}
 
     if os.path.isdir(full):
         shutil.rmtree(full)
+        logger.info(f"[delete_file] Deleted directory: {path}")
     else:
         os.remove(full)
+        logger.info(f"[delete_file] Deleted file: {path}")
 
     return {"ok": True, "path": path}
 
@@ -322,7 +354,8 @@ def create_directory(path: str, parents: bool = True) -> dict[str, Any]:
         dict: Operation status.
     """
     full = safe(path)
-    os.makedirs(full, parents=parents, exist_ok=True)
+    os.makedirs(full, exist_ok=parents)
+    logger.info(f"[create_directory] Created directory: {path}")
     return {"ok": True, "path": path}
 
 
@@ -344,12 +377,17 @@ def search_files(root: str, pattern: str, max_results: int = 100) -> dict[str, A
     """
     root_full = safe(root)
     if not os.path.exists(root_full):
+        logger.error(f"[search_files] Directory not found: {root}")
         return {"ok": False, "error": f"Directory not found: {root}"}
 
     root_path = Path(root_full)
     matches = list(root_path.glob(pattern))[:max_results]
-    results = [{"path": os.path.relpath(m, ROOT), "is_file": m.is_file(), "is_dir": m.is_dir()} for m in matches]
+    results = [
+        {"path": os.path.relpath(m, ROOT), "is_file": m.is_file(), "is_dir": m.is_dir()}
+        for m in matches
+    ]
 
+    logger.info(f"[search_files] Found {len(results)} matches for pattern '{pattern}'")
     return {"ok": True, "pattern": pattern, "results": results, "count": len(results)}
 
 
@@ -369,6 +407,7 @@ def exists(path: str) -> dict[str, Any]:
     """
     full = safe(path)
     exists = os.path.exists(full)
+    logger.info(f"[exists] Checked existence of {path}: {exists}")
     return {
         "ok": True,
         "path": path,
@@ -394,6 +433,7 @@ def get_size(path: str) -> dict[str, Any]:
     """
     full = safe(path)
     if not os.path.exists(full):
+        logger.error(f"[get_size] Path not found: {path}")
         return {"ok": False, "error": f"Path not found: {path}"}
 
     if os.path.isfile(full):
@@ -401,6 +441,7 @@ def get_size(path: str) -> dict[str, Any]:
     else:
         size = sum(f.stat().st_size for f in Path(full).rglob("*") if f.is_file())
 
+    logger.info(f"[get_size] Got size of {path}: {_format_size(size)}")
     return {
         "ok": True,
         "path": path,
@@ -409,5 +450,56 @@ def get_size(path: str) -> dict[str, Any]:
     }
 
 
+@mcp.tool(
+    name="get_cwd",
+    description="Get current working directory and path information.",
+    tags={"enabled"},
+)
+def get_cwd() -> dict[str, Any]:
+    """Get current working directory information.
+
+    Returns:
+        dict: Current working directory details.
+    """
+    logger.info(f"[get_cwd] Retrieved cwd info, root: {ROOT}")
+    return {
+        "ok": True,
+        "root": ROOT,
+        "cwd": "",
+        "cwd_relative": "",
+    }
+
+
+@mcp.tool(
+    name="path_info",
+    description="Get information about a path including absolute and relative forms.",
+    tags={"enabled"},
+)
+def path_info(path: str) -> dict[str, Any]:
+    """Get path information.
+
+    Args:
+        path: Path to analyze.
+
+    Returns:
+        dict: Path details including absolute and relative forms.
+    """
+    full = safe(path)
+    p = Path(full)
+    logger.info(f"[path_info] Retrieved path info for: {path}")
+    return {
+        "ok": True,
+        "relative_path": path,
+        "absolute_path": os.path.abspath(full),
+        "parent": os.path.dirname(path),
+        "name": p.name,
+        "stem": p.stem,
+        "extension": p.suffix,
+        "is_absolute": os.path.isabs(path),
+    }
+
+
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="127.0.0.1", port=8005, stateless_http=True)
+    mcp.run(
+        transport="streamable-http", host="127.0.0.1", port=8005, stateless_http=True
+    )

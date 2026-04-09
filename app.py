@@ -234,6 +234,8 @@ async def main():
     try:
         while True:
             inp = input("\nEnter Your Query: ").strip()
+            if not inp:
+                continue
             if inp in ["q", "quit", "exit"]:
                 logger.info("Exiting...")
                 break
