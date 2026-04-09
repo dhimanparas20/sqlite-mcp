@@ -1,41 +1,30 @@
-# SQLite-MCP
+# MCP Hub
 
-> **⚠️ WORK IN PROGRESS - UNSTABLE**  
-> This project is a proof-of-concept and is currently unstable. Many features require workarounds and the codebase may change significantly.
-> 
-> **⚠️ WARNING: VIBE CODED - UNTESTED**  
-> This project was built to explore LLM capabilities with databases. Most features are **untested** and may break or cause **data loss**. 
-> 
-> **You use this project at your own risk. I am not responsible for any data loss, damages, or harms caused by using this software.**
-> 
-> This project is for **exploration and experimentation only**. Do NOT use in production or with important data.
-
-A natural language interface for SQLite databases using MCP (Model Context Protocol) and LangChain AI agents.
+> A universal CLI for connecting to multiple MCP servers and interacting with them via natural language using LLMs.
 
 ## What is This?
 
-SQLite-MCP is a CLI tool that allows you to interact with SQLite databases using natural language. It combines:
+**MCP Hub** is a flexible CLI tool that lets you connect to any MCP (Model Context Protocol) server—whether running locally or via `uvx`—and interact with them through an AI-powered chat interface. It supports multiple LLM providers (OpenAI, Google, OpenRouter, Groq) and maintains chat history.
 
-- **FastMCP Server**: Exposes SQLite CRUD operations as MCP tools
-- **LangChain Agent**: AI-powered chat interface that translates natural language to SQL
+## Features
+
+- **Multi-Server Support**: Connect to any number of MCP servers (local or uvx-based)
+- **Multi-Model Support**: Use GPT, Gemini, Groq, or OpenRouter models
+- **Chat History**: Persistent JSON-based conversation history (last 20 messages)
+- **Universal Tools**: Any MCP tools exposed by connected servers are automatically available
 
 ## Architecture
 
 ```
-┌─────────────────┐      MCP/HTTP       ┌──────────────────┐
-│   app.py        │ ◄─────────────────► │  mcp_server.py   │
-│ (Chat Client)   │                     │  (FastMCP)       │
-└────────┬────────┘                     └────────┬─────────┘
-         │                                         │
-         │ LangChain Agent                        │
-         │ (GPT-4o)                               │ SQLiteUtils
-         │                                        │ (sqlite_1.py)
-         │                                        ▼
-         │                                 ┌──────────────┐
-         │                                 │  SQLite DB   │
-         │                                 └──────────────┘
-         ▼
-    User Terminal
+┌─────────────┐      LangChain Agent       ┌─────────────────────┐
+│  app.py     │ ◄─────────────────────────►│  MCP Servers        │
+│ (Chat CLI)  │                            │  (via mcps.py config)│
+└─────────────┘                            └─────────────────────┘
+       │                                            │
+       │  Multiple LLM Providers                   │
+       │  (OpenAI/Google/Groq/OpenRouter)          │
+       ▼                                            ▼
+   User Terminal                            Your Tools/APIs
 ```
 
 ## Quick Start
@@ -43,18 +32,15 @@ SQLite-MCP is a CLI tool that allows you to interact with SQLite databases using
 ### Prerequisites
 
 - Python 3.11+
-- OpenAI API key
+- API keys for your chosen LLM provider(s)
 
 ### Installation
 
 ```bash
-# Clone the repository
-cd sqlite-mcp
-
 # Install dependencies
-uv pip install -r requirements.txt
-or
 uv sync
+# or
+uv pip install -r requirements.txt
 ```
 
 ### Configuration
@@ -62,25 +48,63 @@ uv sync
 Create a `.env` file:
 
 ```bash
-# Required: Your OpenAI API key
+# Required: LLM Provider (openai/google/openrouter/groq)
+MODEL_PROVIDER=openai
+
+# Provider-specific API key
 OPENAI_API_KEY=sk-your-key-here
+# or
+GOOGLE_API_KEY=your-key
+# or
+OPEN_ROUTER_API_KEY=your-key
+# or
+GROQ_API_KEY=your-key
 
-# Optional: Custom server URL (default: http://127.0.0.1:8000/mcp)
-MCP_SERVER_URL=http://127.0.0.1:8000/mcp
+# Model name (optional - can be set per provider)
+OPENAI_MODEL=gpt-4o
+GOOGLE_MODEL=gemini-2.0-flash
+OPEN_ROUTER_MODEL=x-ai/grok-4.1-fast
+GROQ_MODEL=llama-3.3-70b-versatile
 
-# Optional: Database path (default: ./sqlite_ops.db)
-SQLITE_MCP_DB_PATH=./sqlite_ops.db
+# Optional settings
+MODEL_TEMPERATURE=0.5
+MAX_TOKENS=1500
+
+# Optional: Custom MCP servers (see mcps.py)
+# MCP_SERVER_URL=http://127.0.0.1:8000/mcp
+```
+
+### Adding MCP Servers
+
+Edit `modules/mcps.py` to add servers:
+
+```python
+MCP_TOOLS = {
+    # Local HTTP server
+    "my-local-server": {
+        "url": "http://127.0.0.1:8000/mcp/",
+        "transport": "streamable-http",
+    },
+    # uvx-based server
+    "duckduckgo-search": {
+        "command": "uvx",
+        "transport": "stdio",
+        "args": ["duckduckgo-mcp-server"],
+        "env": {
+            "DDG_SAFE_SEARCH": "MODERATE",
+            "DDG_REGION": "in-en",
+        },
+    },
+    # Another uvx server
+    "filesystem": {
+        "command": "uvx",
+        "transport": "stdio",
+        "args": ["@modelcontextprotocol/server-filesystem", "/path/to/folder"],
+    },
+}
 ```
 
 ### Running
-
-**Terminal 1 - Start MCP Server:**
-
-```bash
-uv run mcp_server.py
-```
-
-**Terminal 2 - Start Chat Client:**
 
 ```bash
 uv run app.py
@@ -89,95 +113,68 @@ uv run app.py
 ### Usage
 
 ```
-Connecting to http://127.0.0.1:8000/mcp...
-✅ MCP server connected! Tools loaded: ['list_tables', 'table_info', 'create_table', 'insert_rows', 'select_rows', 'select_one_row', 'update_rows', 'delete_rows', 'upsert_row', 'count_rows', 'active_database']
-Loaded 11 tools.
-Enter your query: create a table named users with columns name age email
-Enter your query: insert into users name Alice age 25 email alice@example.com
-Enter your query: show all users
-Enter your query: delete all users where age < 18
+Enter Your Query: search for python tutorials
+Enter Your Query: show my files in /docs
+Enter Your Query: list tables in my database
+Enter Your Query: q
 ```
-
-## Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `list_tables` | List all tables in the database |
-| `table_info` | Get schema information for a table |
-| `create_table` | Create a new table |
-| `insert_rows` | Insert one or more rows |
-| `select_rows` | Query rows with filters |
-| `select_one_row` | Query a single row |
-| `update_rows` | Update existing rows |
-| `delete_rows` | Delete rows |
-| `upsert_row` | Insert or update on conflict |
-| `count_rows` | Count rows |
-| `active_database` | Get current database path |
-
-## Known Issues & Workarounds
-
-1. **Missing `columns` parameter**: When creating tables, the LLM may forget to include the required `columns` dict. System prompt includes guidance for this.
-
-2. **Comparison operators**: Natural language like "age below 30" needs special handling. Use `__gt`, `__lt`, `__gte`, `__lte`, `__ne` suffixes:
-   - `"age < 30"` → `{"age__lt": 30}`
-   - `"age >= 25"` → `{"age__gte": 25}`
-
-3. **Type inference**: The LLM must infer SQL types (TEXT, INTEGER, REAL) from column names. This may not always be accurate.
 
 ## Project Structure
 
 ```
-sqlite-mcp/
-├── app.py              # Chat client with LangChain agent
-├── mcp_server.py       # FastMCP server exposing SQLite tools
+mcp-hub/
+├── app.py                      # Main chat CLI
+├── mcp_server.py               # (Legacy) SQLite MCP server
 ├── modules/
-│   └── sqlite3/
-│       ├── sqlite_1.py # SQLiteUtils wrapper class
-│       ├── sqlite_2.py # (unused)
-│       └── sqlite_3.py # (unused)
-├── sqlite_ops.db       # Default SQLite database
-├── pyproject.toml     # Project configuration
-└── .env              # Environment variables
+│   ├── __init__.py             # Exports
+│   ├── agent_utils.py          # LLM factory (OpenAI/Google/Groq/OpenRouter)
+│   ├── mcps.py                 # MCP server configurations
+│   ├── logger.py               # Logging setup
+│   ├── sqlite3/                # SQLite utilities
+│   └── system_prompts/         # System prompts for agents
+├── chat_history.json           # Chat history (auto-generated)
+└── .env                        # Environment variables
 ```
+
+## Supported LLM Providers
+
+| Provider | Env Vars Required | Models |
+|----------|-------------------|--------|
+| OpenAI | `OPENAI_API_KEY`, `OPENAI_MODEL` | gpt-4o, gpt-4o-mini, etc. |
+| Google | `GOOGLE_API_KEY`, `GOOGLE_MODEL` | gemini-2.0-flash, etc. |
+| OpenRouter | `OPEN_ROUTER_API_KEY`, `OPEN_ROUTER_CHAT_MODEL` | x-ai/grok-4.1-fast, etc. |
+| Groq | `GROQ_API_KEY`, `GROQ_MODEL` | llama-3.3-70b-versatile, etc. |
+
+## Chat History
+
+- Stored in `chat_history.json`
+- Keeps last 20 messages
+- Automatically cleared on exit
+- Contains only message content (no metadata)
+
+## Roadmap
+
+- [ ] Web UI (FastAPI/Streamlit)
+- [ ] SQLite operations via built-in MCP
+- [ ] File-based MCP server starter
+- [ ] Interactive MCP server management
+- [ ] Vector store for long-term memory
+- [ ] Multi-turn tool orchestration
 
 ## Requirements
 
 ```
-fastmcp>=2.0
 langchain>=0.3
-langchain-openai>=0.2
-langgraph>=0.2
-langchain-mcp-adapters>=0.1
+langchain-openai
+langchain-google-genai
+langchain-openrouter
+langchain-groq
+langchain-mcp-adapters
+fastmcp
 python-dotenv
 loguru
 ```
 
-## Future Features (Planned)
-
-- [ ] **Multi-database support**: MySQL, PostgreSQL, MongoDB, Redis
-- [ ] **Multi-model support**: Claude, Gemini, local models (Ollama)
-- [ ] **Persistent chat storage**: Save conversation history
-- [ ] **Web UI**: Browser-based interface
-- [ ] **Batch operations**: Execute multiple queries at once
-- [ ] **Query optimization hints**: LLM suggests indexes
-- [ ] **Data export**: Export results as CSV, JSON, Excel
-- [ ] **Schema migration tools**: Version control for database schemas
-- [ ] **RBAC**: Role-based access control
-- [ ] **API server**: RESTful API for remote access
-
-## Limitations
-
-- Only supports SQLite (for now)
-- Requires OpenAI API key (for now)
-- No persistent chat history between sessions
-- Type inference can be unreliable
-- Limited error handling - may crash on edge cases
-- No authentication on MCP server
-
-## Contributing
-
-This is a work-in-progress project. Contributions welcome but expect rapid changes.
-
 ## License
 
-See [LICENSE](LICENSE) for full terms of use. This project is not open source - explicit permission is required for any use beyond personal development and learning.
+MIT

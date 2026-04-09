@@ -20,7 +20,13 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from mcp.client.streamable_http import streamable_http_client
 from rich import print
 
-from modules import create_llm, LOCAL_MCP_SQLITE3_PROMPT, MCP_TOOLS, get_logger, GENERAL_PROMPT
+from modules import (
+    create_llm,
+    LOCAL_MCP_SQLITE3_PROMPT,
+    MCP_TOOLS,
+    get_logger,
+    GENERAL_PROMPT,
+)
 
 logger = get_logger("MCP_AGENT_MOD")
 load_dotenv()
@@ -57,7 +63,15 @@ class MCPAgentModule:
         self.system_msg = SystemMessage(content=system_message)
         self.mcp_client = MultiServerMCPClient(MCP_TOOLS)
         self.tools = await self.mcp_client.get_tools()
-        logger.info(f"Tools loaded: {[t.name for t in self.tools]}")
+
+        tools_by_server = {}
+        for server_name in MCP_TOOLS:
+            server_client = MultiServerMCPClient({server_name: MCP_TOOLS[server_name]})
+            server_tools = await server_client.get_tools()
+            tools_by_server[server_name] = [t.name for t in server_tools]
+        for server, tool_names in tools_by_server.items():
+            print("-" * 50)
+            logger.info(f"Server '{server}' tools: {tool_names}")
 
         self.llm = create_llm(
             model_provider=model_provider,

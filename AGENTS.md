@@ -4,142 +4,153 @@ This document provides context for AI agents working on this codebase.
 
 ## Project Overview
 
-**Project Name**: sqlite-mcp  
-**Type**: CLI tool / MCP server  
-**Core Functionality**: Natural language interface for SQLite databases using MCP protocol and LangChain agents  
-**Status**: Work-in-progress, unstable
+**Project Name**: MCP Hub  
+**Type**: CLI tool / MCP client  
+**Core Functionality**: Universal MCP server connector with LLM-powered chat interface  
+**Status**: Work-in-progress
 
 ## Architecture
 
-The project consists of two main components:
+MCP Hub connects to multiple MCP servers and exposes their tools via LangChain agents:
 
-1. **mcp_server.py** (FastMCP server)
-   - Runs on http://127.0.0.1:8000/mcp by default
-   - Exposes SQLite operations as MCP tools
-   - Uses SQLiteUtils from modules/sqlite3/sqlite_1.py
-   - Handles database connections, CRUD operations
+```
+app.py (Chat CLI)
+       │
+       ├── MultiServerMCPClient → MCP Servers (from mcps.py)
+       │
+       └── create_agent → LLM (OpenAI/Google/Groq/OpenRouter)
+```
 
-2. **app.py** (Chat client)
-   - Connects to MCP server via langchain_mcp_adapters
-   - Uses LangChain create_agent with GPT-4o
-   - Provides CLI chat interface with history
-   - Translates natural language to SQL operations
+### Key Files
 
-## Database Utility
+| File | Purpose |
+|------|---------|
+| `app.py` | Main chat CLI with history management |
+| `modules/mcps.py` | MCP server configurations |
+| `modules/agent_utils.py` | LLM factory for multiple providers |
+| `modules/logger.py` | Logging setup |
+| `modules/system_prompts/` | Agent system prompts |
 
-**File**: `modules/sqlite3/sqlite_1.py`  
-**Class**: `SQLiteUtils`
+## MCP Server Configuration
 
-### Key Methods
+**File**: `modules/mcps.py`
 
-- `create_table(table_name, columns, if_not_exists, primary_key, unique)`
-- `insert(table_name, data)` - accepts dict or list[dict]
-- `select(table_name, columns, where, order_by, limit, offset, distinct)`
-- `update(table_name, data, where)`
-- `delete(table_name, where)`
-- `upsert(table_name, data, conflict_columns, update_columns)`
-- `count(table_name, where)`
-- `list_tables()`
-- `get_table_info(table_name)`
+Servers are defined in `MCP_TOOLS` dict with these transport types:
 
-### Where Clause Builder
+### 1. HTTP-based (streamable-http)
+```python
+"server-name": {
+    "url": "http://127.0.0.1:8000/mcp/",
+    "transport": "streamable-http",
+}
+```
 
-The `_build_where_clause` method supports comparison operators via suffixes:
-- `__gt` → `>`
-- `__lt` → `<`
-- `__gte` → `>=`
-- `__lte` → `<=`
-- `__ne` → `!=`
+### 2. STDIO-based (uvx)
+```python
+"server-name": {
+    "command": "uvx",
+    "transport": "stdio",
+    "args": ["package-name"],
+    "env": {"KEY": "value"},  # optional
+}
+```
 
-Example: `{"age__lt": 30, "name__ne": "John"}` becomes `WHERE age < 30 AND name != 'John'`
+### 3. STDIO with arguments
+```python
+"server-name": {
+    "command": "uvx",
+    "transport": "stdio",
+    "args": ["@modelcontextprotocol/server-filesystem", "/path"],
+}
+```
 
-## MCP Server Tools
+## LLM Providers
 
-All tools are defined in mcp_server.py with FastMCP decorators. Each tool:
-- Has async implementation
-- Returns dict with "ok" status
-- Logs errors instead of raising
-- Includes error handling that returns error messages
+**File**: `modules/agent_utils.py`
 
-Current tools:
-- list_tables
-- table_info  
-- create_table
-- insert_rows
-- select_rows
-- select_one_row
-- update_rows
-- delete_rows
-- upsert_row
-- count_rows
-- active_database
+Supported providers via `MODEL_REGISTRY`:
+
+| Provider | Env Vars | Config |
+|----------|----------|--------|
+| `openai` | `OPENAI_API_KEY`, `OPENAI_MODEL` | langchain_openai.ChatOpenAI |
+| `google` | `GOOGLE_API_KEY`, `GOOGLE_MODEL` | langchain_google_genai.ChatGoogleGenerativeAI |
+| `openrouter` | `OPEN_ROUTER_API_KEY`, `OPEN_ROUTER_CHAT_MODEL` | langchain_openrouter.ChatOpenRouter |
+| `groq` | `GROQ_API_KEY`, `GROQ_MODEL` | langchain_groq.ChatGroq |
+
+### Using `create_llm`
+
+```python
+from modules import create_llm
+
+llm = create_llm(
+    model_provider="openai",      # or "google", "openrouter", "groq"
+    model_name="gpt-4o",
+    model_temperature=0.5,
+    max_tokens=1500,
+)
+```
+
+## Chat History
+
+**File**: `app.py`
+
+- Stored in `chat_history.json` (JSON format)
+- Keeps last 20 messages
+- Loaded on startup, saved after each response
+- Cleared on exit (`q`, `quit`, `exit`)
+- Format: `[{"type": "human"/"ai", "data": {"content": "..."}}]`
+
+### Message Classes
+
+- `HumanMessage` - user input
+- `AIMessage` - model response
+- `SystemMessage` - system prompt
 
 ## Chat Client
 
-**File**: app.py
+**File**: `app.py`
 
 ### Components
 
-- `SystemMessage` - defines agent behavior and capabilities
-- `create_agent()` - LangChain agent with tools
-- `deque` with maxlen=10 - stores chat history
+- `MCPAgentModule` - main class managing agent, tools, history
+- `_load_history()` - loads chat history from JSON
+- `_save_history()` - saves to JSON (max 20 messages)
+- `_clear_history()` - deletes history on exit
+- `invoke_agent()` - non-streaming agent invocation
+- `agent_stream()` - streaming agent invocation
 
-### System Prompt Guidelines
+### System Prompt
 
-The agent must:
-1. Extract column names from natural language
-2. Infer SQL types (TEXT, INTEGER, REAL, BLOB)
-3. Format as dict: {"column_name": "TYPE"}
-4. Handle comparison operators with __gt, __lt, __gte, __lte, __ne suffixes
-5. Return meaningful responses to users
-
-### Known Workarounds
-
-1. **columns parameter**: The LLM often fails to include the required `columns` dict when calling create_table. Always ensure columns are provided.
-
-2. **where parameter**: Some operations need explicit where clauses. Use comparison suffixes for non-equality comparisons.
-
-3. **Type inference**: May be inaccurate - column names like "price" should be REAL, "count" should be INTEGER.
+Located in `modules/system_prompts/local_mcp_sqlit3_prompt.py` (SQLite-specific, can be expanded).
 
 ## Environment Variables
 
-- `OPENAI_API_KEY` - Required for GPT-4o
-- `MCP_SERVER_URL` - MCP server endpoint (default: http://127.0.0.1:8000/mcp)
-- `SQLITE_MCP_DB_PATH` - Database file path
-- `FASTMCP_HOST` - Server host
-- `FASTMCP_PORT` - Server port
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MODEL_PROVIDER` | Yes | openai/google/openrouter/groq |
+| `OPENAI_API_KEY` | If using OpenAI | OpenAI API key |
+| `GOOGLE_API_KEY` | If using Google | Google AI API key |
+| `OPEN_ROUTER_API_KEY` | If using OpenRouter | OpenRouter API key |
+| `GROQ_API_KEY` | If using Groq | Groq API key |
+| `MODEL_TEMPERATURE` | No | Default: 0.5 |
+| `MAX_TOKENS` | No | Default: 1500 |
 
 ## Running the Project
 
 ```bash
-# Terminal 1: Start MCP server
-uv run mcp_server.py
-
-# Terminal 2: Start chat client  
+# Start the chat interface
 uv run app.py
 ```
 
-## Testing Queries
-
-```
-"create a table named users with columns name age email"
-"insert into users name Alice age 25 email alice@example.com"  
-"show all users"
-"delete users where age < 18"
-"update users set age = 26 where name = Alice"
-```
-
-## Future Enhancements (For Reference)
+## Future Enhancements
 
 When expanding this codebase, consider:
-- Add support for MySQL, PostgreSQL, MongoDB, Redis backends
-- Support multiple LLM providers (Claude, Gemini, Ollama)
-- Implement persistent chat storage (file, database, or vector store)
-- Add web interface (Streamlit, FastAPI)
-- Implement proper error handling and retry logic
-- Add authentication/authorization
-- Support for complex queries (JOINs, subqueries)
-- Add query optimization suggestions
+- Web UI (FastAPI/Streamlit)
+- Interactive MCP server discovery
+- Vector store for long-term memory
+- Tool result caching
+- Request/response validation
+- Rate limiting and retries
 
 ## Code Style
 
