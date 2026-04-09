@@ -4,12 +4,15 @@ import argparse
 import atexit
 import importlib.util
 import os
-import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
+
+from modules.logger import get_logger
+
+logger = get_logger("[SQLITE]")
 
 _SQLITE1_PATH = Path(__file__).resolve().parent / "modules" / "sqlite3" / "sqlite_1.py"
 _SQLITE1_SPEC = importlib.util.spec_from_file_location("sqlite_1_local", _SQLITE1_PATH)
@@ -19,47 +22,10 @@ _SQLITE1_MODULE = importlib.util.module_from_spec(_SQLITE1_SPEC)
 _SQLITE1_SPEC.loader.exec_module(_SQLITE1_MODULE)
 SQLiteUtils = _SQLITE1_MODULE.SQLiteUtils
 
-try:
-    from loguru import logger
-except ImportError:
-    import logging
-
-    _fallback_logger = logging.getLogger("sqlite-mcp")
-    _fallback_logger.setLevel(logging.INFO)
-    _handler = logging.StreamHandler(sys.stderr)
-    _handler.setFormatter(logging.Formatter("%(message)s"))
-    _fallback_logger.handlers = [_handler]
-
-    class _LoggerProxy:
-        def __init__(self, method: str = "global") -> None:
-            self._method = method
-
-        def remove(self) -> None:
-            return None
-
-        def add(self, *_args: Any, **_kwargs: Any) -> None:
-            return None
-
-        def bind(self, **kwargs: Any) -> "_LoggerProxy":
-            return _LoggerProxy(method=kwargs.get("method", "global"))
-
-        def log(self, _level: str, message: str) -> None:
-            _fallback_logger.info(message)
-
-    logger = _LoggerProxy()
-
 
 DEFAULT_DB_PATH = os.getenv(
     "SQLITE_MCP_DB_PATH",
     str(Path(__file__).resolve().parent / "sqlite_ops.db"),
-)
-LOG_SOURCE_NAME = Path(__file__).name
-
-logger.remove()
-logger.add(
-    sys.stderr,
-    format=f"[{LOG_SOURCE_NAME}][{{extra[method]}}] {{message}}",
-    level="INFO",
 )
 
 sqlite_db = SQLiteUtils(DEFAULT_DB_PATH)
@@ -68,25 +34,21 @@ atexit.register(sqlite_db.close)
 mcp = FastMCP(name="SQLite3 Ops.", tasks=False)
 
 
-def _log(method_name: str, message: str, level: str = "INFO") -> None:
-    logger.bind(method=method_name).log(level.upper(), message)
-
-
-def _commit(method_name: str) -> None:
+def _commit() -> None:
     sqlite_db.connection.commit()
-    _log(method_name, "transaction committed")
+    logger.info("[SQLITE] transaction committed")
 
 
-def _rollback(method_name: str, error: Exception) -> None:
+def _rollback(error: Exception) -> None:
     sqlite_db.connection.rollback()
-    _log(method_name, f"transaction rolled back: {error}", "ERROR")
+    logger.error(f"[SQLITE] transaction rolled back: {error}")
 
 
 def _set_db_path(db_path: str) -> None:
     global sqlite_db
     sqlite_db.close()
     sqlite_db = SQLiteUtils(db_path)
-    _log("set_db_path", f"active database path set to: {db_path}")
+    logger.info(f"[SQLITE] active database path set to: {db_path}")
 
 
 @mcp.tool(
@@ -100,9 +62,8 @@ async def list_tables() -> list[str]:
     Returns:
         list[str]: Table names sorted by SQLite query order.
     """
-    method_name = "list_tables"
     tables = sqlite_db.list_tables()
-    _log(method_name, f"listed {len(tables)} table(s)")
+    logger.info(f"[list_tables] listed {len(tables)} table(s)")
     return tables
 
 
@@ -120,12 +81,10 @@ async def table_info(table_name: str) -> dict[str, Any] | None:
     Returns:
         dict[str, Any] | None: Dataclass payload as dict if table exists, else None.
     """
-    method_name = "table_info"
     info = sqlite_db.get_table_info(table_name)
     payload = asdict(info) if info else None
-    _log(
-        method_name,
-        f"loaded schema for table={table_name!r}, exists={payload is not None}",
+    logger.info(
+        f"[table_info] loaded schema for table={table_name!r}, exists={payload is not None}"
     )
     return payload
 
@@ -154,10 +113,8 @@ async def create_table(
     Returns:
         dict[str, Any]: Operation status with created table name or error message.
     """
-    method_name = "create_table"
-
     if columns is None:
-        _log(method_name, "error: columns parameter is required", "ERROR")
+        logger.error("[create_table] error: columns parameter is required")
         return {
             "ok": False,
             "error": "Missing required parameter: columns (dict of column names to SQL types)",
@@ -172,12 +129,12 @@ async def create_table(
             primary_key=primary_key,
             unique=unique,
         )
-        _commit(method_name)
-        _log(method_name, f"table created or already exists: {table_name!r}")
+        _commit()
+        logger.info(f"[create_table] table created or already exists: {table_name!r}")
         return {"ok": True, "table": table_name}
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error creating table: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[create_table] error creating table: {error}")
         return {"ok": False, "error": str(error), "table": table_name}
 
 
@@ -198,18 +155,19 @@ async def insert_rows(
     Returns:
         dict[str, Any]: Insert metadata including affected rows and row ids.
     """
-    method_name = "insert_rows"
     try:
         result = sqlite_db.insert(table_name, data)
-        _commit(method_name)
+        _commit()
         if isinstance(result, list):
-            _log(method_name, f"inserted {len(result)} row(s) into {table_name!r}")
+            logger.info(
+                f"[insert_rows] inserted {len(result)} row(s) into {table_name!r}"
+            )
             return {"rows_inserted": len(result), "row_ids": result}
-        _log(method_name, f"inserted 1 row into {table_name!r}")
+        logger.info(f"[insert_rows] inserted 1 row into {table_name!r}")
         return {"rows_inserted": 1, "row_id": result}
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error inserting rows: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[insert_rows] error inserting rows: {error}")
         return {"ok": False, "error": str(error), "table": table_name}
 
 
@@ -241,7 +199,6 @@ async def select_rows(
     Returns:
         list[dict[str, Any]]: Matching rows.
     """
-    method_name = "select_rows"
     rows = sqlite_db.select(
         table_name=table_name,
         columns=columns,
@@ -251,7 +208,7 @@ async def select_rows(
         offset=offset,
         distinct=distinct,
     )
-    _log(method_name, f"selected {len(rows)} row(s) from {table_name!r}")
+    logger.info(f"[select_rows] selected {len(rows)} row(s) from {table_name!r}")
     return rows
 
 
@@ -277,14 +234,15 @@ async def select_one_row(
     Returns:
         dict[str, Any] | None: First matching row, else None.
     """
-    method_name = "select_one_row"
     row = sqlite_db.select_one(
         table_name=table_name,
         columns=columns,
         where=where,
         order_by=order_by,
     )
-    _log(method_name, f"selected one from {table_name!r}, found={row is not None}")
+    logger.info(
+        f"[select_one_row] selected one from {table_name!r}, found={row is not None}"
+    )
     return row
 
 
@@ -306,17 +264,16 @@ async def update_rows(
     Returns:
         dict[str, Any]: Number of rows updated.
     """
-    method_name = "update_rows"
     try:
         rowcount = sqlite_db.update(
             table_name=table_name, data=data, where=where if where else {}
         )
-        _commit(method_name)
-        _log(method_name, f"updated {rowcount} row(s) in {table_name!r}")
+        _commit()
+        logger.info(f"[update_rows] updated {rowcount} row(s) in {table_name!r}")
         return {"ok": True, "rows_updated": rowcount}
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error updating rows: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[update_rows] error updating rows: {error}")
         return {"ok": False, "error": str(error), "table": table_name}
 
 
@@ -337,15 +294,14 @@ async def delete_rows(
     Returns:
         dict[str, Any]: Number of rows deleted.
     """
-    method_name = "delete_rows"
     try:
         rowcount = sqlite_db.delete(table_name=table_name, where=where if where else {})
-        _commit(method_name)
-        _log(method_name, f"deleted {rowcount} row(s) from {table_name!r}")
+        _commit()
+        logger.info(f"[delete_rows] deleted {rowcount} row(s) from {table_name!r}")
         return {"ok": True, "rows_deleted": rowcount}
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error deleting rows: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[delete_rows] error deleting rows: {error}")
         return {"ok": False, "error": str(error), "table": table_name}
 
 
@@ -371,7 +327,6 @@ async def upsert_row(
     Returns:
         dict[str, Any]: Number of affected rows.
     """
-    method_name = "upsert_row"
     try:
         rowcount = sqlite_db.upsert(
             table_name=table_name,
@@ -379,12 +334,12 @@ async def upsert_row(
             conflict_columns=conflict_columns,
             update_columns=update_columns,
         )
-        _commit(method_name)
-        _log(method_name, f"upsert affected {rowcount} row(s) in {table_name!r}")
+        _commit()
+        logger.info(f"[upsert_row] upsert affected {rowcount} row(s) in {table_name!r}")
         return {"ok": True, "rows_affected": rowcount}
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error upserting row: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[upsert_row] error upserting row: {error}")
         return {"ok": False, "error": str(error), "table": table_name}
 
 
@@ -405,9 +360,8 @@ async def count_rows(
     Returns:
         dict[str, int]: Total row count.
     """
-    method_name = "count_rows"
     total = sqlite_db.count(table_name=table_name, where=where)
-    _log(method_name, f"counted rows in {table_name!r}: {total}")
+    logger.info(f"[count_rows] counted rows in {table_name!r}: {total}")
     return {"count": total}
 
 
@@ -422,9 +376,8 @@ async def active_database() -> dict[str, str]:
     Returns:
         dict[str, str]: Active `db_path` value.
     """
-    method_name = "active_database"
     db_path = str(sqlite_db.db_path)
-    _log(method_name, f"active database path: {db_path}")
+    logger.info(f"[active_database] active database path: {db_path}")
     return {"db_path": db_path}
 
 
@@ -442,16 +395,15 @@ async def delete_table(table_name: str) -> dict[str, Any]:
     Returns:
         dict[str, Any]: Operation status with table name.
     """
-    method_name = "delete_table"
     try:
         cursor = sqlite_db.connection.cursor()
         cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
-        _commit(method_name)
-        _log(method_name, f"dropped table: {table_name!r}")
+        _commit()
+        logger.info(f"[delete_table] dropped table: {table_name!r}")
         return {"ok": True, "table": table_name}
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error dropping table: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[delete_table] error dropping table: {error}")
         return {"ok": False, "error": str(error), "table": table_name}
 
 
@@ -466,18 +418,17 @@ async def flush_database() -> dict[str, Any]:
     Returns:
         dict[str, Any]: Operation status with list of dropped tables.
     """
-    method_name = "flush_database"
     try:
         tables = sqlite_db.list_tables()
         cursor = sqlite_db.connection.cursor()
         for table in tables:
             cursor.execute(f"DROP TABLE IF EXISTS {table}")
-        _commit(method_name)
-        _log(method_name, f"flushed {len(tables)} table(s)")
+        _commit()
+        logger.info(f"[flush_database] flushed {len(tables)} table(s)")
         return {"ok": True, "tables_dropped": tables, "count": len(tables)}
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error flushing database: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[flush_database] error flushing database: {error}")
         return {"ok": False, "error": str(error)}
 
 
@@ -496,16 +447,17 @@ async def rename_table(table_name: str, new_table_name: str) -> dict[str, Any]:
     Returns:
         dict[str, Any]: Operation status with old and new table names.
     """
-    method_name = "rename_table"
     try:
         cursor = sqlite_db.connection.cursor()
         cursor.execute(f"ALTER TABLE {table_name} RENAME TO {new_table_name}")
-        _commit(method_name)
-        _log(method_name, f"renamed table {table_name!r} to {new_table_name!r}")
+        _commit()
+        logger.info(
+            f"[rename_table] renamed table {table_name!r} to {new_table_name!r}"
+        )
         return {"ok": True, "old_name": table_name, "new_name": new_table_name}
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error renaming table: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[rename_table] error renaming table: {error}")
         return {"ok": False, "error": str(error), "table": table_name}
 
 
@@ -524,7 +476,6 @@ async def execute_sql(sql: str, params: list | None = None) -> dict[str, Any]:
     Returns:
         dict[str, Any]: Query results or affected row count.
     """
-    method_name = "execute_sql"
     try:
         cursor = sqlite_db.connection.cursor()
         if params:
@@ -537,7 +488,7 @@ async def execute_sql(sql: str, params: list | None = None) -> dict[str, Any]:
                 [desc[0] for desc in cursor.description] if cursor.description else []
             )
             rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-            _log(method_name, f"executed query, returned {len(rows)} rows")
+            logger.info(f"[execute_sql] executed query, returned {len(rows)} rows")
             return {
                 "ok": True,
                 "columns": columns,
@@ -546,12 +497,12 @@ async def execute_sql(sql: str, params: list | None = None) -> dict[str, Any]:
             }
         else:
             rowcount = cursor.rowcount
-            _commit(method_name)
-            _log(method_name, f"executed statement, affected {rowcount} rows")
+            _commit()
+            logger.info(f"[execute_sql] executed statement, affected {rowcount} rows")
             return {"ok": True, "affected_rows": rowcount}
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error executing SQL: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[execute_sql] error executing SQL: {error}")
         return {"ok": False, "error": str(error)}
 
 
@@ -579,7 +530,6 @@ async def create_index(
     Returns:
         dict[str, Any]: Operation status.
     """
-    method_name = "create_index"
     try:
         unique_str = "UNIQUE " if unique else ""
         if_not_exists_str = "IF NOT EXISTS " if if_not_exists else ""
@@ -588,9 +538,11 @@ async def create_index(
 
         cursor = sqlite_db.connection.cursor()
         cursor.execute(sql)
-        _commit(method_name)
+        _commit()
 
-        _log(method_name, f"created index {index_name} on {table_name}({columns_str})")
+        logger.info(
+            f"[create_index] created index {index_name} on {table_name}({columns_str})"
+        )
         return {
             "ok": True,
             "index": index_name,
@@ -598,8 +550,8 @@ async def create_index(
             "columns": columns,
         }
     except Exception as error:
-        _rollback(method_name, error)
-        _log(method_name, f"error creating index: {error}", "ERROR")
+        _rollback(error)
+        logger.error(f"[create_index] error creating index: {error}")
         return {"ok": False, "error": str(error)}
 
 
@@ -614,7 +566,6 @@ async def list_indexes() -> dict[str, Any]:
     Returns:
         dict[str, Any]: List of indexes with details.
     """
-    method_name = "list_indexes"
     try:
         cursor = sqlite_db.connection.cursor()
         cursor.execute("""
@@ -628,10 +579,10 @@ async def list_indexes() -> dict[str, Any]:
             for row in cursor.fetchall()
         ]
 
-        _log(method_name, f"listed {len(indexes)} indexes")
+        logger.info(f"[list_indexes] listed {len(indexes)} indexes")
         return {"ok": True, "indexes": indexes, "count": len(indexes)}
     except Exception as error:
-        _log(method_name, f"error listing indexes: {error}", "ERROR")
+        logger.error(f"[list_indexes] error listing indexes: {error}")
         return {"ok": False, "error": str(error)}
 
 
@@ -646,14 +597,13 @@ async def vacuum_database() -> dict[str, Any]:
     Returns:
         dict[str, Any]: Operation status.
     """
-    method_name = "vacuum_database"
     try:
         cursor = sqlite_db.connection.cursor()
         cursor.execute("VACUUM")
-        _log(method_name, "database vacuumed successfully")
+        logger.info("[vacuum_database] database vacuumed successfully")
         return {"ok": True, "message": "Database vacuumed successfully"}
     except Exception as error:
-        _log(method_name, f"error vacuuming: {error}", "ERROR")
+        logger.error(f"[vacuum_database] error vacuuming: {error}")
         return {"ok": False, "error": str(error)}
 
 

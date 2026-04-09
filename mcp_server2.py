@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from modules.logger import get_logger
 
-logger = get_logger("[FILESYSTEM]")
+logger = get_logger("FILESYSTEM")
 
 mcp = FastMCP("filesystem")
 ROOT = os.getenv("FILESYSTEM_ROOT", "/mnt/d/0Coding")
@@ -35,9 +35,7 @@ def safe(path: str) -> str:
     description="List contents of a directory with optional filtering.",
     tags={"enabled"},
 )
-def list_directory(
-    path: str = ".", pattern: str | None = None, include_hidden: bool = False
-) -> dict[str, Any]:
+def list_directory(path: str = ".", pattern: str | None = None, include_hidden: bool = False) -> dict[str, Any]:
     """List contents of a directory.
 
     Args:
@@ -197,9 +195,7 @@ def write_file(path: str, content: str, create_dirs: bool = True) -> dict[str, A
     description="Create a new file with optional content.",
     tags={"enabled"},
 )
-def create_file(
-    path: str, content: str = "", create_dirs: bool = True
-) -> dict[str, Any]:
+def create_file(path: str, content: str = "", create_dirs: bool = True) -> dict[str, Any]:
     """Create a new file with optional content.
 
     Args:
@@ -216,9 +212,7 @@ def create_file(
         os.makedirs(os.path.dirname(full), exist_ok=True)
     else:
         if not os.path.exists(os.path.dirname(full)):
-            logger.error(
-                f"[create_file] Parent directory does not exist: {os.path.dirname(path)}"
-            )
+            logger.error(f"[create_file] Parent directory does not exist: {os.path.dirname(path)}")
             return {
                 "ok": False,
                 "error": f"Parent directory does not exist: {os.path.dirname(path)}",
@@ -382,10 +376,7 @@ def search_files(root: str, pattern: str, max_results: int = 100) -> dict[str, A
 
     root_path = Path(root_full)
     matches = list(root_path.glob(pattern))[:max_results]
-    results = [
-        {"path": os.path.relpath(m, ROOT), "is_file": m.is_file(), "is_dir": m.is_dir()}
-        for m in matches
-    ]
+    results = [{"path": os.path.relpath(m, ROOT), "is_file": m.is_file(), "is_dir": m.is_dir()} for m in matches]
 
     logger.info(f"[search_files] Found {len(results)} matches for pattern '{pattern}'")
     return {"ok": True, "pattern": pattern, "results": results, "count": len(results)}
@@ -500,6 +491,4 @@ def path_info(path: str) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    mcp.run(
-        transport="streamable-http", host="127.0.0.1", port=8005, stateless_http=True
-    )
+    mcp.run(transport="streamable-http", host="127.0.0.1", port=8005, stateless_http=True)
