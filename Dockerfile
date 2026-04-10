@@ -18,7 +18,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         tzdata \
         curl \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime \
+    && echo "Asia/Kolkata" > /etc/timezone
 
 # Copy the uv and uvx binaries from the official uv image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

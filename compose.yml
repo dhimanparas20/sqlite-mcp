@@ -1,3 +1,6 @@
+volumes:
+  valkey_data: {}
+
 x-common: &common
   build:
     context: .
@@ -22,6 +25,44 @@ networks:
     driver: bridge
 
 services:
+
+  valkey:
+    image: docker.io/bitnami/valkey:latest
+    container_name: valkey
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+    command:
+      - /opt/bitnami/scripts/valkey/run.sh
+      # Load the JSON module
+      - --loadmodule
+      - "/opt/bitnami/valkey/modules/libjson.so"
+      # Keep the password as a single argv token
+      - --requirepass
+      - "testpass"
+      - --appendonly
+      - "yes"
+      - --save
+      - "3600"
+      - "1"
+      - --save
+      - "300"
+      - "100"
+      - --save
+      - "60"
+      - "10000"
+    volumes:
+      - valkey_data:/bitnami/valkey/data
+    networks:
+      - caddy
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a testpass ping"]
+      interval: 10m
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+      start_interval: 2s
+    restart: unless-stopped
+
   mcp_sql:
     <<: *common
     container_name: mcp_sql
@@ -30,7 +71,7 @@ services:
       - "8000:8000"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
-      interval: 30s
+      interval: 10m
       timeout: 5s
       retries: 5
       start_period: 20s
@@ -43,7 +84,7 @@ services:
       - "8005:8005"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8005/health || exit 1"]
-      interval: 30s
+      interval: 10m
       timeout: 5s
       retries: 5
       start_period: 20s
@@ -56,23 +97,28 @@ services:
       - "8010:8010"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8010/health || exit 1"]
-      interval: 30s
+      interval: 10m
       timeout: 5s
       retries: 5
       start_period: 20s
 
   huey:
     <<: *common
+    command: >
+      uv run huey_consumer.py tasks.tasks.huey -k thread -w 2 --flush-locks info
     container_name: huey
-    entrypoint: ["./huey_start.sh"]
     volumes:
       - ./modules:/app/modules
       - ./datastore:/app/datastore
       - ./tasks:/app/tasks
-      - ./huey_start.sh:/app/huey_start.sh
+    depends_on:
+      - valkey
     healthcheck:
-      test: ["CMD-SHELL", "true"]
-      interval: 30s
+      test: [
+        "CMD-SHELL",
+        "test ! -f /tmp/drain && uv run --frozen --no-sync python -c \"import os,sys; import redis; r=redis.Redis.from_url(os.getenv('REDIS_URL')); sys.exit(0 if r.ping() else 1)\""
+      ]
+      interval: 3m
       timeout: 5s
       retries: 3
       start_period: 10s
@@ -93,11 +139,13 @@ services:
       - ./app.py:/app/app.py
     depends_on:
       mcp_fs:
-        condition: service_started
+        condition: service_healthy
       mcp_sql:
-        condition: service_started
+        condition: service_healthy
       mcp_downloader:
-        condition: service_started
+        condition: service_healthy
+      huey:
+        condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "test ! -f /tmp/drain && curl -f http://localhost:8001/ping" ]
       interval: 5m

@@ -27,6 +27,7 @@ dependencies = [
     "mcp-server-time>=2026.1.26",
     "mcp-url-downloader>=0.1.0",
     "pageindex>=0.2.8",
+    "redis>=7.4.0",
     "requests>=2.33.1",
     "starlette>=1.0.0",
     "uvicorn>=0.44.0",
