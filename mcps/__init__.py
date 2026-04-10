@@ -5,15 +5,15 @@ load_dotenv()
 
 MCP_TOOLS = {
     "sqlite-local": {
-        "url": "http://sql_mcp:8000/mcp/",
+        "url": "http://mcp_sql:8000/mcp/",
         "transport": "streamable-http",
     },
     "custom-fs": {
-        "url": "http://fs_mcp:8005/mcp",
+        "url": "http://mcp_fs:8005/mcp",
         "transport": "streamable-http",
     },
     "downloader": {
-        "url": "http://downloader_mcp:8010/mcp",
+        "url": "http://mcp_downloader:8010/mcp",
         "transport": "streamable-http",
     },
     "ddg-search": {

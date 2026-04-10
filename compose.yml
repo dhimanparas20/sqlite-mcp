@@ -2,7 +2,7 @@ x-common: &common
   build:
     context: .
     dockerfile: Dockerfile
-  image: mcp-hub:local
+  image: mcp-hub
   env_file:
     - .env
   restart: unless-stopped
@@ -15,18 +15,16 @@ x-common: &common
   volumes:
     - ./modules:/app/modules
     - ./datastore:/app/datastore
-    - ./templates:/app/templates
     - ./mcps:/app/mcps
-    - ./app.py:/app/app.py
 
 networks:
   caddy:
     driver: bridge
 
 services:
-  sql_mcp:
+  mcp_sql:
     <<: *common
-    container_name: sql_mcp
+    container_name: mcp_sql
     command: ["uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_server"]
     ports:
       - "8000:8000"
@@ -37,9 +35,9 @@ services:
       retries: 5
       start_period: 20s
 
-  fs_mcp:
+  mcp_fs:
     <<: *common
-    container_name: fs_mcp
+    container_name: mcp_fs
     command: ["uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_server2"]
     ports:
       - "8005:8005"
@@ -50,9 +48,9 @@ services:
       retries: 5
       start_period: 20s
 
-  downloader_mcp:
+  mcp_downloader:
     <<: *common
-    container_name: downloader_mcp
+    container_name: mcp_downloader
     command: ["uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_server3"]
     ports:
       - "8010:8010"
@@ -63,18 +61,41 @@ services:
       retries: 5
       start_period: 20s
 
+  huey:
+    <<: *common
+    container_name: huey
+    entrypoint: ["./huey_start.sh"]
+    volumes:
+      - ./modules:/app/modules
+      - ./datastore:/app/datastore
+      - ./tasks:/app/tasks
+      - ./huey_start.sh:/app/huey_start.sh
+    healthcheck:
+      test: ["CMD-SHELL", "true"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+
   app:
     <<: *common
     container_name: app
     command: [ "uv", "run", "--frozen", "--no-sync", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--proxy-headers", "--workers", "1", "--use-colors", "--log-level", "debug" ]
     ports:
       - "8001:8001"
+    volumes:
+      - ./modules:/app/modules
+      - ./datastore:/app/datastore
+      - ./templates:/app/templates
+      - ./tasks:/app/tasks
+      - ./app.py:/app/app.py
     depends_on:
-      sql_mcp:
+      mcp_fs:
         condition: service_started
-      fs_mcp:
+      mcp_sql:
         condition: service_started
-      downloader_mcp:
+      mcp_downloader:
         condition: service_started
     healthcheck:
       test: [ "CMD-SHELL", "test ! -f /tmp/drain && curl -f http://localhost:8001/ping" ]
@@ -83,4 +104,3 @@ services:
       retries: 3
       start_period: 30s
       start_interval: 2s
-
