@@ -21,6 +21,9 @@ Available tools:
     - Schedule at specific time: task_name="test_schedule_task", task_args=["hello"], eta="2026-04-10T18:30:00"
     - Sleep task after 60 sec: task_name="test_sleep_task", task_kwargs={"sleep_time": 10}, delay=60
   - Always use job ID from response to check status later with get_background_task_status
+- **get_system_datetime**: Get current system date and time in readable format
+  - MUST use this for ANY time-based activity - always fetch current time from this tool before calculating delays/schedules
+  - Returns: datetime, iso, timestamp, timezone
 - **pageindex**: Direct access to PageIndex API for advanced indexing and querying operations.
 
 Important - Background Tasks:
