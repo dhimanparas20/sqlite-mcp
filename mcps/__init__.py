@@ -6,7 +6,7 @@ MCP_TOOLS = {
         "transport": "streamable-http",
     },
     "custom-fs": {
-        "url": "http://127.0.0.1:8005/mcp",  # FastMCP's default SSE endpoint
+        "url": "http://127.0.0.1:8005/mcp",
         "transport": "streamable-http",
     },
     "downloader": {
@@ -14,32 +14,33 @@ MCP_TOOLS = {
         "transport": "streamable-http",
     },
     "ddg-search": {
-        "command": "uvx",
+        "command": "uv",
         "transport": "stdio",
-        "args": ["duckduckgo-mcp-server"],
+        "args": ["run", "duckduckgo-mcp-server"],
         "env": {
             "DDG_SAFE_SEARCH": "MODERATE",
             "DDG_REGION": "in-en",
         },
     },
     "fetch": {
-        "command": "uvx",
+        "command": "uv",
         "transport": "stdio",
-        "args": ["mcp-server-fetch"],
+        "args": ["run", "mcp-server-fetch"],
     },
     "git": {
-        "command": "uvx",
+        "command": "uv",
         "transport": "stdio",
-        "args": ["mcp-server-git"],
+        "args": ["run", "mcp-server-git"],
     },
     "time": {
-        "command": "uvx",
+        "command": "uv",
         "transport": "stdio",
-        "args": ["mcp-server-time"],
+        "args": ["run", "mcp-server-time"],
     },
-    # "url-downloader": {
-    #     "command": "uvx",
-    #     "transport": "stdio",
-    #     "args": ["mcp-url-downloader", "--path", "/app/datastore"],
-    # },
+    "url-downloader": {
+        "command": "uv",
+        "transport": "stdio",
+        "args": ["run", "mcp-url-downloader", "--path", "/home/paras/Downloads/mcp_downloads"],
+        "env": {"DEFAULT_OUTPUT_DIR": "/home/paras/Downloads/mcp_downloads"},
+    },
 }

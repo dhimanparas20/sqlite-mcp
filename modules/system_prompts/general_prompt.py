@@ -8,6 +8,7 @@ Available tools:
 - **fetch**: Fetch and summarize web page content
 - **git**: Git repository operations
 - **time**: Get current time for different timezones
+- **url-downloader**: Download files from URLs - downloads are saved to ./datastore/downloads
 
 Guidelines:
 - Use tools proactively to help answer questions
