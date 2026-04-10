@@ -8,23 +8,32 @@
 
 ## Features
 
-- **Multi-Server Support**: Connect to any number of MCP servers (local or uvx-based)
+- **Multi-Server Support**: Connect to any number of MCP servers (local HTTP or uvx-based)
+- **Dual Built-in Servers**: SQLite database operations + Filesystem operations
 - **Multi-Model Support**: Use GPT, Gemini, Groq, or OpenRouter models
-- **Chat History**: Persistent JSON-based conversation history (last 20 messages)
+- **Chat History**: Persistent JSON-based conversation history (last 30 messages)
 - **Universal Tools**: Any MCP tools exposed by connected servers are automatically available
 
 ## Architecture
 
 ```
-┌─────────────┐      LangChain Agent       ┌─────────────────────┐
-│  app.py     │ ◄─────────────────────────►│  MCP Servers        │
-│ (Chat CLI)  │                            │  (via mcps.py config)│
-└─────────────┘                            └─────────────────────┘
-       │                                            │
-       │  Multiple LLM Providers                   │
-       │  (OpenAI/Google/Groq/OpenRouter)          │
-       ▼                                            ▼
-   User Terminal                            Your Tools/APIs
+┌─────────────────────────────────────────────────────────────────────┐
+│                          app.py (Chat CLI)                            │
+└─────────────────────────────────────────────────────────────────────┘
+        │                                                │
+        │  ┌──────────────────────────────────────────┐  │
+        │  │    MultiServerMCPClient (mcps.py)          │  │
+        │  └──────────────────────────────────────────┘  │
+        │                    │                               │
+   ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐ │
+   │ SQLite MCP │  │  FS MCP   │  │  uvx     │  │ ...    │
+   │ :8000    │  │  :8005   │  │ Tools    │  │        │
+   └──────────┘  └──────────┘  └─────────┘  └────────┘
+        │                                                │
+        │  Multiple LLM Providers                        │
+        │  (OpenAI/Google/Groq/OpenRouter)           │
+        ▼                                                ▼
+    User Terminal                                Your Tools/APIs
 ```
 
 ## Quick Start
@@ -37,10 +46,36 @@
 ### Installation
 
 ```bash
-# Install dependencies
 uv sync
-# or
-uv pip install -r requirements.txt
+```
+
+### Running with Docker (Recommended)
+
+Start both MCP servers automatically:
+
+```bash
+docker compose up
+```
+
+Then in another terminal:
+
+```bash
+uv run app.py
+```
+
+### Running Manually
+
+Start the MCP servers:
+
+```bash
+# Terminal 1 - SQLite server
+uv run --frozen mcps.mcp_server
+
+# Terminal 2 - Filesystem server
+uv run --frozen mcps.mcp_server2
+
+# Terminal 3 - Chat CLI
+uv run app.py
 ```
 
 ### Configuration
@@ -60,7 +95,7 @@ OPEN_ROUTER_API_KEY=your-key
 # or
 GROQ_API_KEY=your-key
 
-# Model name (optional - can be set per provider)
+# Model name (optional - defaults per provider)
 OPENAI_MODEL=gpt-4o
 GOOGLE_MODEL=gemini-2.0-flash
 OPEN_ROUTER_MODEL=x-ai/grok-4.1-fast
@@ -70,11 +105,11 @@ GROQ_MODEL=llama-3.3-70b-versatile
 MODEL_TEMPERATURE=0.5
 MAX_TOKENS=1500
 
-# Optional: Custom MCP servers (see mcps.py)
-# MCP_SERVER_URL=http://127.0.0.1:8000/mcp
+# Custom MCP server URL (optional)
+DEFAULT_MCP_SERVER_URL=http://127.0.0.1:8000/mcp/
 ```
 
-### Adding MCP Servers
+### Adding More MCP Servers
 
 Edit `modules/mcps.py` to add servers:
 
@@ -95,45 +130,94 @@ MCP_TOOLS = {
             "DDG_REGION": "in-en",
         },
     },
-    # Another uvx server
-    "filesystem": {
-        "command": "uvx",
-        "transport": "stdio",
-        "args": ["@modelcontextprotocol/server-filesystem", "/path/to/folder"],
-    },
 }
 ```
 
-### Running
+## Built-in MCP Servers
 
-```bash
-uv run app.py
+### SQLite Server (mcp1) - Port 8000
+
+Full SQLite database operations:
+
+| Tool | Description |
+|------|-------------|
+| `list_tables` | List all tables in the database |
+| `table_info` | Get schema information for a table |
+| `create_table` | Create a new table with columns |
+| `insert_rows` | Insert one or more rows |
+| `select_rows` | Query rows with filters |
+| `select_one_row` | Query a single row |
+| `update_rows` | Update existing rows |
+| `delete_rows` | Delete rows |
+| `upsert_row` | Insert or update on conflict |
+| `count_rows` | Count rows in a table |
+| `delete_table` | Drop a table |
+| `flush_database` | Delete all tables |
+| `rename_table` | Rename a table |
+| `execute_sql` | Execute raw SQL |
+| `create_index` | Create an index |
+| `list_indexes` | List all indexes |
+| `vacuum_database` | Optimize database |
+
+Database path: `./datastore/sqlite_ops.db`
+
+### Filesystem Server (mcp2) - Port 8005
+
+Full filesystem operations:
+
+| Tool | Description |
+|------|-------------|
+| `list_directory` | List directory contents |
+| `get_file_info` | Get file details |
+| `read_file` | Read file content |
+| `write_file` | Write content to file |
+| `create_file` | Create a new file |
+| `copy_file` | Copy file/directory |
+| `move_file` | Move file/directory |
+| `delete_file` | Delete file/directory |
+| `create_directory` | Create a directory |
+| `search_files` | Search with glob pattern |
+| `exists` | Check if path exists |
+| `get_size` | Get file/dir size |
+| `tree` | Directory tree structure |
+
+Root: Project directory
+
+## Usage
+
 ```
-
-### Usage
-
-```
-Enter Your Query: search for python tutorials
-Enter Your Query: show my files in /docs
-Enter Your Query: list tables in my database
+Enter Your Query: list tables in the database
+Enter Your Query: create a table users with name text age int email text
+Enter Your Query: insert into users name Alice age 25
+Enter Your Query: list all files in the datastore folder
+Enter Your Query: show the directory tree
 Enter Your Query: q
 ```
 
 ## Project Structure
 
 ```
-mcp-hub/
+sqlite-mcp/
 ├── app.py                      # Main chat CLI
-├── mcp_server.py               # (Legacy) SQLite MCP server
+├── pyproject.toml              # Project dependencies
+├── compose.yml              # Docker services
+├── Dockerfile
+├── .env                   # Environment variables
+├── datastore/              # Data files
+│   ├── sqlite_ops.db
+│   └── students.csv
 ├── modules/
-│   ├── __init__.py             # Exports
-│   ├── agent_utils.py          # LLM factory (OpenAI/Google/Groq/OpenRouter)
-│   ├── mcps.py                 # MCP server configurations
-│   ├── logger.py               # Logging setup
-│   ├── sqlite3/                # SQLite utilities
-│   └── system_prompts/         # System prompts for agents
-├── chat_history.json           # Chat history (auto-generated)
-└── .env                        # Environment variables
+│   ├── __init__.py
+│   ├── agent_utils.py        # LLM factory
+│   ├── logger.py           # Colored logging
+│   ├── mcps.py            # MCP server config
+│   ├── system_prompts/     # Agent system prompts
+│   └── sqlite3/           # SQLite utilities
+├── mcps/
+│   ├── __init__.py
+│   ├── mcp_server.py       # SQLite MCP server
+│   └── mcp_server2.py     # Filesystem MCP server
+└── chat_history.json       # Chat history (auto)
 ```
 
 ## Supported LLM Providers
@@ -148,31 +232,34 @@ mcp-hub/
 ## Chat History
 
 - Stored in `chat_history.json`
-- Keeps last 20 messages
-- Automatically cleared on exit
-- Contains only message content (no metadata)
+- Keeps last 30 messages
+- Automatically cleared on exit (`q`, `quit`, `exit`)
+- Format: `[{"type": "human"/"ai", "data": {"content": "..."}}]`
 
 ## Roadmap
 
 - [ ] Web UI (FastAPI/Streamlit)
-- [ ] SQLite operations via built-in MCP
-- [ ] File-based MCP server starter
-- [ ] Interactive MCP server management
+- [ ] Interactive MCP server discovery
 - [ ] Vector store for long-term memory
+- [ ] Tool result caching
 - [ ] Multi-turn tool orchestration
 
 ## Requirements
 
 ```
-langchain>=0.3
+langchain>=1.2
+langchain-core
 langchain-openai
 langchain-google-genai
 langchain-openrouter
 langchain-groq
 langchain-mcp-adapters
+langgraph
 fastmcp
 python-dotenv
 loguru
+colorlog
+starlette
 ```
 
 ## License

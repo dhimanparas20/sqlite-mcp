@@ -31,7 +31,7 @@ from mcps import MCP_TOOLS
 logger = get_logger(name="APP", show_pid=False, show_time=True)
 load_dotenv()
 
-CHAT_HISTORY_FILE = Path(__file__).parent / "chat_history.json"
+CHAT_HISTORY_FILE = Path(__file__).parent / "./datastore/chat_history.json"
 MAX_HISTORY = 30
 
 

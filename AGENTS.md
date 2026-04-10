@@ -5,9 +5,9 @@ This document provides context for AI agents working on this codebase.
 ## Project Overview
 
 **Project Name**: MCP Hub  
-**Type**: CLI tool / MCP client  
-**Core Functionality**: Universal MCP server connector with LLM-powered chat interface  
-**Status**: Work-in-progress
+**Type**: CLI tool with embedded MCP servers  
+**Core Functionality**: Universal MCP server connector with LLM-powered chat interface with built-in SQLite and Filesystem MCP servers  
+**Status**: Production-ready
 
 ## Architecture
 
@@ -16,9 +16,13 @@ MCP Hub connects to multiple MCP servers and exposes their tools via LangChain a
 ```
 app.py (Chat CLI)
        │
-       ├── MultiServerMCPClient → MCP Servers (from mcps.py)
+       ├── MultiServerMCPClient (modules/mcps.py)
        │
-       └── create_agent → LLM (OpenAI/Google/Groq/OpenRouter)
+       ├── Built-in MCP Servers:
+       │   ├── mcps/mcp_server.py (SQLite - port 8000)
+       │   └── mcps/mcp_server2.py (Filesystem - port 8005)
+       │
+       └── create_llm → LLM (OpenAI/Google/Groq/OpenRouter)
 ```
 
 ### Key Files
@@ -26,10 +30,14 @@ app.py (Chat CLI)
 | File | Purpose |
 |------|---------|
 | `app.py` | Main chat CLI with history management |
+| `modules/__init__.py` | Exports `create_llm`, prompts, logger |
 | `modules/mcps.py` | MCP server configurations |
 | `modules/agent_utils.py` | LLM factory for multiple providers |
-| `modules/logger.py` | Logging setup |
+| `modules/logger.py` | Colored logging setup |
 | `modules/system_prompts/` | Agent system prompts |
+| `mcps/__init__.py` | MCP_TOOLS configuration |
+| `mcps/mcp_server.py` | SQLite MCP server (FastMCP) |
+| `mcps/mcp_server2.py` | Filesystem MCP server (FastMCP) |
 
 ## MCP Server Configuration
 
@@ -55,12 +63,22 @@ Servers are defined in `MCP_TOOLS` dict with these transport types:
 }
 ```
 
-### 3. STDIO with arguments
+## Default Configured Servers
+
 ```python
-"server-name": {
-    "command": "uvx",
-    "transport": "stdio",
-    "args": ["@modelcontextprotocol/server-filesystem", "/path"],
+MCP_TOOLS = {
+    "sqlite-local": {
+        "url": "http://127.0.0.1:8000/mcp/",
+        "transport": "streamable-http",
+    },
+    "custom-fs": {
+        "url": "http://127.0.0.1:8005/mcp",
+        "transport": "streamable-http",
+    },
+    "ddg-search": {...},
+    "fetch": {...},
+    "git": {...},
+    "time": {...},
 }
 ```
 
@@ -90,12 +108,79 @@ llm = create_llm(
 )
 ```
 
+## Built-in MCP Servers
+
+### SQLite Server (mcps/mcp_server.py)
+
+Runs on port 8000. Database: `./datastore/sqlite_ops.db`
+
+**Tools**:
+- `list_tables` - List all tables
+- `table_info(table_name)` - Get schema
+- `create_table(table_name, columns, if_not_exists, primary_key, unique)` - Create table
+- `insert_rows(data, table_name)` - Insert rows
+- `select_rows(table_name, columns, where, order_by, limit, offset, distinct)` - Query rows
+- `select_one_row(table_name, columns, where, order_by)` - Query single row
+- `update_rows(table_name, data, where)` - Update rows
+- `delete_rows(table_name, where)` - Delete rows
+- `upsert_row(table_name, data, conflict_columns, update_columns)` - Upsert
+- `count_rows(table_name, where)` - Count rows
+- `active_database()` - Get current DB path
+- `delete_table(table_name)` - Drop table
+- `flush_database()` - Drop all tables
+- `rename_table(table_name, new_table_name)` - Rename table
+- `execute_sql(sql, params)` - Raw SQL
+- `create_index(index_name, table_name, columns, unique, if_not_exists)` - Create index
+- `list_indexes()` - List indexes
+- `vacuum_database()` - Optimize DB
+
+### Filesystem Server (mcps/mcp_server2.py)
+
+Runs on port 8005. Root: Project directory
+
+**Tools**:
+- `list_directory(path, pattern, include_hidden)` - List directory
+- `get_file_info(path)` - File details
+- `read_file(path, max_size)` - Read content
+- `write_file(path, content, create_dirs)` - Write content
+- `create_file(path, content, create_dirs)` - Create file
+- `copy_file(source, destination, overwrite)` - Copy
+- `move_file(source, destination, overwrite)` - Move
+- `delete_file(path)` - Delete
+- `create_directory(path, parents)` - Create directory
+- `search_files(root, pattern, max_results)` - Glob search
+- `exists(path)` - Check existence
+- `get_size(path)` - Get size
+- `get_cwd()` - Get working directory
+- `list_dir(path)` - List directory
+- `path_info(path)` - Path details
+- `get_pwd()` - Print working directory
+- `tree(path, max_depth, include_hidden)` - Directory tree
+
+## System Prompts
+
+**File**: `modules/system_prompts/`
+
+Two prompts available:
+
+1. `LOCAL_MCP_SQLITE3_PROMPT` - SQLite-focused (for database operations)
+2. `GENERAL_PROMPT` - General purpose (for all tools)
+
+### Using Prompts
+
+```python
+from modules import LOCAL_MCP_SQLITE3_PROMPT, GENERAL_PROMPT
+
+# Default is GENERAL_PROMPT
+await agent.init(model_provider="openai", system_message=GENERAL_PROMPT)
+```
+
 ## Chat History
 
 **File**: `app.py`
 
 - Stored in `chat_history.json` (JSON format)
-- Keeps last 20 messages
+- Keeps last 30 messages (was 20)
 - Loaded on startup, saved after each response
 - Cleared on exit (`q`, `quit`, `exit`)
 - Format: `[{"type": "human"/"ai", "data": {"content": "..."}}]`
@@ -114,14 +199,10 @@ llm = create_llm(
 
 - `MCPAgentModule` - main class managing agent, tools, history
 - `_load_history()` - loads chat history from JSON
-- `_save_history()` - saves to JSON (max 20 messages)
+- `_save_history()` - saves to JSON (max 30 messages)
 - `_clear_history()` - deletes history on exit
 - `invoke_agent()` - non-streaming agent invocation
-- `agent_stream()` - streaming agent invocation
-
-### System Prompt
-
-Located in `modules/system_prompts/local_mcp_sqlit3_prompt.py` (SQLite-specific, can be expanded).
+- `agent_stream()` - streaming agent invocation with reasoning
 
 ## Environment Variables
 
@@ -134,13 +215,46 @@ Located in `modules/system_prompts/local_mcp_sqlit3_prompt.py` (SQLite-specific,
 | `GROQ_API_KEY` | If using Groq | Groq API key |
 | `MODEL_TEMPERATURE` | No | Default: 0.5 |
 | `MAX_TOKENS` | No | Default: 1500 |
+| `DEFAULT_MCP_SERVER_URL` | No | Default SQLite server URL |
+| `SQLITE_MCP_DB_PATH` | No | Default: ./datastore/sqlite_ops.db |
+| `FASTMCP_HOST` | No | Default: 0.0.0.0 |
+| `FASTMCP_PORT` | No | Default: 8000 |
+| `FASTMCP2_PORT` | No | Default: 8005 |
 
 ## Running the Project
 
+### Docker (Recommended)
+
 ```bash
-# Start the chat interface
+docker compose up
+```
+
+Then in another terminal:
+
+```bash
 uv run app.py
 ```
+
+### Manual
+
+```bash
+# Terminal 1
+uv run --frozen mcps.mcp_server
+
+# Terminal 2
+uv run --frozen mcps.mcp_server2
+
+# Terminal 3
+uv run app.py
+```
+
+## Code Style
+
+- Use type hints where possible
+- Prefer async/await for I/O operations
+- Use dataclasses for structured data
+- Follow existing naming conventions
+- Add docstrings to new functions
 
 ## Future Enhancements
 
@@ -151,11 +265,3 @@ When expanding this codebase, consider:
 - Tool result caching
 - Request/response validation
 - Rate limiting and retries
-
-## Code Style
-
-- Use type hints where possible
-- Prefer async/await for I/O operations
-- Use dataclasses for structured data
-- Follow existing naming conventions
-- Add docstrings to new functions
