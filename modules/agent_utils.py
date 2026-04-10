@@ -46,7 +46,7 @@ MODEL_REGISTRY: dict[str, ModelConfig] = {
 
 
 def create_llm(
-    model_name: str,
+    model_name: str | None = None,
     api_key: Optional[str] = None,
     model_provider: Literal["openai", "google", "openrouter", "groq"] = "openai",
     model_temperature: Optional[float] = None,
@@ -78,7 +78,7 @@ def create_llm(
     # Use `is None` so that 0.0 is respected as a valid temperature
     temperature = model_temperature if model_temperature is not None else float(os.getenv("MODEL_TEMPERATURE", "0.5"))
 
-    resolved_model = model_name or os.getenv(config.model_env)
+    resolved_model = model_name if model_name else os.getenv(config.model_env)
     resolved_api_key = api_key or os.getenv(config.api_key_env)
 
     if not resolved_model:

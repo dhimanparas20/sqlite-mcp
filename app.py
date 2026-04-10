@@ -56,9 +56,9 @@ class MCPAgentModule:
         self,
         model_provider: Literal["openai", "google", "openrouter", "groq"] = os.getenv("MODEL_PROVIDER"),
         model_name: str = os.getenv("MODEL"),
-        model_temperature: Optional[float] = 0.5,
-        max_tokens: Optional[int] = 1500,
-        system_message: str = LOCAL_MCP_SQLITE3_PROMPT,
+        model_temperature: Optional[float] = os.getenv("MODEL_TEMPERATURE"),
+        max_tokens: Optional[int] = os.getenv("MAX_TOKENS"),
+        system_message: str = GENERAL_PROMPT,
     ) -> None:
         logger.info("Initializing MCPAgentModule")
         self.system_msg = SystemMessage(content=system_message)
@@ -222,7 +222,7 @@ class MCPAgentModule:
 
 async def main():
     agent = MCPAgentModule()
-    await agent.init(model_provider="openai", system_message=GENERAL_PROMPT)
+    await agent.init()
 
     try:
         while True:
@@ -234,7 +234,10 @@ async def main():
                 break
             try:
                 response = await agent.invoke_agent(question=inp)
-                response.pretty_print()
+                if hasattr(response, "pretty_print"):
+                    response.pretty_print()
+                else:
+                    print(response)
             except Exception as e:
                 logger.error(e)
     finally:
@@ -242,4 +245,10 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user")
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        raise
