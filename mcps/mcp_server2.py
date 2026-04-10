@@ -9,7 +9,7 @@ from modules.logger import get_logger
 logger = get_logger("FILESYSTEM")
 
 mcp = FastMCP("filesystem")
-ROOT = os.getenv("FILESYSTEM_ROOT", "/mnt/d/0Coding")
+ROOT = os.getcwd()
 if ROOT.endswith("\\"):
     ROOT = ROOT[:-1]
 
@@ -462,6 +462,50 @@ def get_cwd() -> dict[str, Any]:
 
 
 @mcp.tool(
+    name="list_dir",
+    description="List contents of a directory.",
+    tags={"enabled"},
+)
+def list_dir(path: str) -> dict[str, Any]:
+    """List directory contents.
+
+    Args:
+        path: Directory path to list.
+
+    Returns:
+        dict: Directory listing with files and directories.
+    """
+    full = safe(path)
+    if not os.path.isdir(full):
+        logger.error(f"[list_dir] Not a directory: {path}")
+        return {"ok": False, "error": f"Not a directory: {path}"}
+
+    try:
+        items = []
+        for item in os.listdir(full):
+            item_path = os.path.join(full, item)
+            is_dir = os.path.isdir(item_path)
+            items.append(
+                {
+                    "name": item,
+                    "type": "directory" if is_dir else "file",
+                    "size": os.path.getsize(item_path) if not is_dir else None,
+                }
+            )
+
+        logger.info(f"[list_dir] Listed {len(items)} items in {path}")
+        return {
+            "ok": True,
+            "path": path,
+            "items": items,
+            "count": len(items),
+        }
+    except Exception as e:
+        logger.error(f"[list_dir] Error listing {path}: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool(
     name="path_info",
     description="Get information about a path including absolute and relative forms.",
     tags={"enabled"},
@@ -490,6 +534,80 @@ def path_info(path: str) -> dict[str, Any]:
     }
 
 
+@mcp.tool(
+    name="get_pwd",
+    description="Get the current working directory (like Unix pwd command).",
+    tags={"enabled"},
+)
+def get_pwd() -> dict[str, Any]:
+    """Get current working directory.
+
+    Returns:
+        dict: Current working directory path.
+    """
+    cwd = os.getcwd()
+    logger.info(f"[get_pwd] Current working directory: {cwd}")
+    return {"ok": True, "pwd": cwd}
+
+
+@mcp.tool(
+    name="tree",
+    description="Display directory tree structure recursively.",
+    tags={"enabled"},
+)
+def tree(path: str = ".", max_depth: int = 3, include_hidden: bool = False) -> dict[str, Any]:
+    """Display directory tree structure.
+
+    Args:
+        path: Root directory path.
+        max_depth: Maximum depth to recurse.
+        include_hidden: Whether to include hidden files.
+
+    Returns:
+        dict: Tree structure.
+    """
+    full = safe(path)
+    if not os.path.isdir(full):
+        logger.error(f"[tree] Not a directory: {path}")
+        return {"ok": False, "error": f"Not a directory: {path}"}
+
+    def build_tree(base_path: str, current_depth: int = 0) -> list[dict[str, Any]]:
+        if current_depth >= max_depth:
+            return []
+
+        items = []
+        try:
+            for item in os.listdir(base_path):
+                if not include_hidden and item.startswith("."):
+                    continue
+
+                item_path = os.path.join(base_path, item)
+                rel_path = os.path.relpath(item_path, ROOT)
+                is_dir = os.path.isdir(item_path)
+
+                entry = {
+                    "name": item,
+                    "type": "directory" if is_dir else "file",
+                    "path": rel_path,
+                }
+                if is_dir:
+                    entry["children"] = build_tree(item_path, current_depth + 1)
+
+                items.append(entry)
+        except PermissionError:
+            pass
+
+        return sorted(items, key=lambda x: (not x.get("type") == "directory", x["name"]))
+
+    tree_data = {
+        "path": path,
+        "max_depth": max_depth,
+        "tree": build_tree(full),
+    }
+    logger.info(f"[tree] Generated tree for {path} with max_depth {max_depth}")
+    return {"ok": True, **tree_data}
+
+
 # Health Check
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -501,10 +619,18 @@ async def health_check(request: Request) -> JSONResponse:
 
 
 if __name__ == "__main__":
+    logger.info(f"[init] Working directory: {ROOT}")
     try:
-        mcp.run(transport="streamable-http", host="0.0.0.0", port=8005, stateless_http=True)
+        mcp.run(
+            transport="streamable-http",
+            host=os.getenv("FASTMCP_HOST", "0.0.0.0"),
+            port=int(os.getenv("FASTMCP2_PORT", "8005")),
+            log_level=os.getenv("FASTMCP_LOG_LEVEL", "INFO"),
+            stateless_http=False,
+        )
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
+        mcp.close()
     except Exception as e:
         import traceback
         import sys

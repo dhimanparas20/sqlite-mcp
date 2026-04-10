@@ -1,31 +1,23 @@
 from __future__ import annotations
 
-import argparse
 import atexit
-import importlib.util
 import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from modules.logger import get_logger
+from modules.sqlite3 import SQLiteUtils
 
-logger = get_logger("[SQLITE]")
-
-_SQLITE1_PATH = Path(__file__).resolve().parent / "modules" / "sqlite3" / "sqlite_1.py"
-_SQLITE1_SPEC = importlib.util.spec_from_file_location("sqlite_1_local", _SQLITE1_PATH)
-if _SQLITE1_SPEC is None or _SQLITE1_SPEC.loader is None:
-    raise RuntimeError(f"Unable to load sqlite helper module from {_SQLITE1_PATH}")
-_SQLITE1_MODULE = importlib.util.module_from_spec(_SQLITE1_SPEC)
-_SQLITE1_SPEC.loader.exec_module(_SQLITE1_MODULE)
-SQLiteUtils = _SQLITE1_MODULE.SQLiteUtils
-
+logger = get_logger("SQLITE")
 
 DEFAULT_DB_PATH = os.getenv(
     "SQLITE_MCP_DB_PATH",
-    str(Path(__file__).resolve().parent / "sqlite_ops.db"),
+    str(Path(__file__).resolve().parent / "./datastore/sqlite_ops.db"),
 )
 
 sqlite_db = SQLiteUtils(DEFAULT_DB_PATH)
@@ -94,7 +86,7 @@ async def table_info(table_name: str) -> dict[str, Any] | None:
 )
 async def create_table(
     table_name: str,
-    columns: dict[str, str] | None = None,
+    columns: dict[str, str] | list[dict[str, str]] | None = None,
     if_not_exists: bool = True,
     primary_key: str | None = None,
     unique: list[str] | None = None,
@@ -103,7 +95,7 @@ async def create_table(
 
     Args:
         table_name (str): Destination table name.
-        columns (dict[str, str] | None): Mapping of column name to SQL type definition.
+        columns (dict[str, str] | list[dict[str, str]] | None): Mapping of column name to SQL type, or list of {"name": col, "type": typ} dicts.
         if_not_exists (bool): Whether to include IF NOT EXISTS.
         primary_key (str | None): Optional primary key column name.
         unique (list[str] | None): Optional unique constraint columns.
@@ -118,6 +110,17 @@ async def create_table(
             "error": "Missing required parameter: columns (dict of column names to SQL types)",
             "table": table_name,
         }
+
+    if isinstance(columns, list):
+        try:
+            columns = {item["name"]: item["type"] for item in columns}
+        except (KeyError, TypeError) as e:
+            logger.error(f"[create_table] error parsing columns list: {e}")
+            return {
+                "ok": False,
+                "error": f"Invalid columns list format: {e}",
+                "table": table_name,
+            }
 
     try:
         sqlite_db.create_table(
@@ -582,28 +585,6 @@ async def vacuum_database() -> dict[str, Any]:
         return {"ok": False, "error": str(error)}
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="SQLite FastMCP server")
-    parser.add_argument("--host", default=os.getenv("FASTMCP_HOST", "0.0.0.0"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("FASTMCP_PORT", "8000")))
-    parser.add_argument(
-        "--path",
-        default=os.getenv("FASTMCP_STREAMABLE_HTTP_PATH", "/mcp"),
-        help="Streamable HTTP endpoint path.",
-    )
-    parser.add_argument(
-        "--db-path",
-        default=DEFAULT_DB_PATH,
-        help="SQLite database file path used by the global SQLiteUtils instance.",
-    )
-    return parser.parse_args()
-
-
-# Health Check
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-
-
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"}, 200)
@@ -611,18 +592,23 @@ async def health_check(request: Request) -> JSONResponse:
 
 if __name__ == "__main__":
     try:
-        args = _parse_args()
-        _set_db_path(args.db_path)
+        _set_db_path(
+            os.getenv(
+                "SQLITE_MCP_DB_PATH",
+                DEFAULT_DB_PATH,
+            ),
+        )
+        logger.info(f"[init] Database path: {DEFAULT_DB_PATH}")
         mcp.run(
             transport="streamable-http",
-            host=args.host,
-            port=args.port,
-            path=args.path,
-            log_level="INFO",
+            host=os.getenv("FASTMCP_HOST", "0.0.0.0"),
+            port=int(os.getenv("FASTMCP_PORT", "8000")),
+            log_level=os.getenv("FASTMCP_LOG_LEVEL", "INFO"),
             stateless_http=False,
         )
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
+        mcp.close()
     except Exception as e:
         import traceback
         import sys

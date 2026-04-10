@@ -10,3 +10,4 @@ demo_*.db
 *.db-journal
 .env
 chat_history.json
+datastore/

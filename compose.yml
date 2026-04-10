@@ -1,56 +1,47 @@
-# ----------------------------------------------------------------------------------
-# Use for local development where local code is mounted to the containers
-# -----------------------------------------------------------------------------------
+x-common: &common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: mcp-hub:local
+  env_file:
+    - .env
+  restart: unless-stopped
+  working_dir: /app
+  init: true
+  environment:
+    PYTHONPATH: /app
+  networks:
+    - caddy
+  volumes:
+    - ./modules:/app/modules
+    - ./datastore:/app/datastore
+    - ./mcps:/app/mcps
 
 networks:
   caddy:
     driver: bridge
 
 services:
-
   mcp1:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: mcp-hub:local
-    container_name: mcp1
-    restart: unless-stopped
-    command: [ "uv", "run", "--frozen", "--no-sync", "mcp_server.py" ]
+    <<: *common
+    command: ["uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_server"]
     ports:
       - "8000:8000"
-    env_file:
-      - .env
-    networks:
-      - caddy
-    volumes:
-      - ./modules:/app/modules
-      - ./mcp_server.py:/app/mcp_server.py
     healthcheck:
-      test: [ "CMD-SHELL", "test ! -f /tmp/drain && curl -f http://localhost:8000/health" ]
-      interval: 5m
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 25s
-      start_interval: 2s
+      start_period: 20s
 
   mcp2:
-    image: mcp-hub:local
-    container_name: mcp2
-    command: [ "uv", "run", "--frozen", "--no-sync", "mcp_server2.py" ]
-    restart: unless-stopped
+    <<: *common
+    command: ["uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_server2"]
     ports:
       - "8005:8005"
-    env_file:
-      - .env
-    networks:
-      - caddy
-    volumes:
-      - ./modules:/app/modules
-      - ./mcp_server2.py:/app/mcp_server2.py
     healthcheck:
-      test: [ "CMD-SHELL", "test ! -f /tmp/drain && curl -f http://localhost:8005/health" ]
-      interval: 5m
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8005/health || exit 1"]
+      interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 25s
-      start_interval: 2s
+      start_period: 20s
