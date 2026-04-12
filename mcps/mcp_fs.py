@@ -676,6 +676,7 @@ if __name__ == "__main__":
             port=int(os.getenv("FASTMCP2_PORT", "8005")),
             log_level=os.getenv("FASTMCP_LOG_LEVEL", "INFO"),
             stateless_http=False,
+            show_banner=True,
         )
     except KeyboardInterrupt:
         logger.info("Server stopped by user")

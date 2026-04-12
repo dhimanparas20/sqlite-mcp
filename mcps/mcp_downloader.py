@@ -3,13 +3,12 @@ from __future__ import annotations
 import aiohttp
 import asyncio
 import os
-from pathlib import Path
-from typing import Any
 from datetime import datetime
-
 from fastmcp import FastMCP
+from pathlib import Path
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from typing import Any
 
 from modules.logger import get_logger
 
@@ -490,6 +489,7 @@ if __name__ == "__main__":
             port=int(os.getenv("FASTMCP3_PORT", "8010")),
             log_level=os.getenv("FASTMCP_LOG_LEVEL", "INFO"),
             stateless_http=False,
+            show_banner=True,
         )
     except KeyboardInterrupt:
         logger.info("Server stopped by user")

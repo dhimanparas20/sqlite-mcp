@@ -135,10 +135,10 @@ services:
     volumes:
       - ./modules:/app/modules
       - ./datastore:/app/datastore
-      - ./mcps:/app/mcps
       - ./templates:/app/templates
       - ./tasks:/app/tasks
       - ./app.py:/app/app.py
+      - ./mcps/__init__.py:/app/mcps/__init__.py
     depends_on:
       #      mcp_fs:
       #        condition: service_healthy
