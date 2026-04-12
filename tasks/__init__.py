@@ -5,6 +5,7 @@ from .tasks import (
     send_email_task,
     test_schedule_task,
     schedule_task,
+    get_all_tasks
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "send_email_task",
     "test_schedule_task",
     "schedule_task",
+    "get_all_tasks",
 ]

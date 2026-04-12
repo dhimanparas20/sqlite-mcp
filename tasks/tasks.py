@@ -41,6 +41,36 @@ def get_job_status(job_id: str) -> dict:
     return {"status": "not_found", "result": None}
 
 
+def get_all_tasks() -> dict:
+    """
+    Get all tasks across different states in Huey queue.
+    Returns: dict with scheduled (eta) and pending keys.
+    """
+    result = {
+        "scheduled": [],
+        "pending": [],
+    }
+
+    for task in huey.scheduled():
+        result["scheduled"].append(
+            {
+                "id": task.id,
+                "name": task.name,
+                "eta": task.eta.isoformat() if task.eta else None,
+            }
+        )
+
+    for task in huey.pending():
+        result["pending"].append(
+            {
+                "id": task.id,
+                "name": task.name,
+            }
+        )
+
+    return result
+
+
 @huey.task(retries=3, retry_delay=5)
 def index_documents_task(
     sources: Union[str, List[str]],

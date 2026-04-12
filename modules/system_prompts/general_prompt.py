@@ -30,6 +30,7 @@ TOOL CATEGORIES
 ## 7. Background Task Scheduling (LangChain + Huey)
 - **schedule_task**: Schedule any Huey task to run later with delay (seconds) or specific eta (ISO8601 datetime)
 - **get_background_task_status**: Check status of background task by job ID
+- **get_all_tasks**: Get all tasks in the Huey queue (scheduled, pending, results)
 
 ## 8. Utility Tools (LangChain)
 - **get_system_datetime**: Get current system date/time - MUST use for any time calculations

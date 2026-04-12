@@ -66,7 +66,7 @@ services:
   mcp_sql:
     <<: *common
     container_name: mcp_sql
-    command: [ "uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_server" ]
+    command: [ "uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_sql" ]
     ports:
       - "8000:8000"
     healthcheck:
@@ -81,7 +81,7 @@ services:
   #    container_name: mcp_fs
   #    command: >
   #      sh -c "mkdir -p /app/datastore/internal /app/datastore/downloads && chmod -R 777 /app/datastore &&
-  #      uv run --frozen --no-sync python -m mcps.mcp_server2"
+  #      uv run --frozen --no-sync python -m mcps.mcp_fs"
   #    ports:
   #      - "8005:8005"
   #    healthcheck:
@@ -94,7 +94,7 @@ services:
   mcp_downloader:
     <<: *common
     container_name: mcp_downloader
-    command: [ "uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_server3" ]
+    command: [ "uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_downloader" ]
     ports:
       - "8010:8010"
     healthcheck:

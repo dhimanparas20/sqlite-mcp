@@ -14,6 +14,7 @@ from tasks import (
     index_documents_task,
     test_sleep_task,
     get_job_status,
+    get_all_tasks,
     send_email_task,
     schedule_task,
 )
@@ -42,6 +43,23 @@ def get_background_task_status_tool(job_id: str) -> Dict[str, Any]:
     status = get_job_status(job_id)
     logger.info(f"[get_background_task_status_tool] || {status}")
     return status
+
+
+@tool("get_all_tasks")
+def get_all_tasks_tool() -> Dict[str, Any]:
+    """Get all tasks in the Huey queue.
+
+    Returns all tasks across different states: scheduled (eta tasks),
+    pending (waiting in queue), and completed results.
+
+    Returns:
+        Dict containing:
+            - scheduled: List of tasks scheduled to run at specific time
+            - pending: List of tasks waiting in queue
+            - results: List of completed tasks with their results
+    """
+    logger.info("[get_all_tasks_tool] Fetching all tasks")
+    return get_all_tasks()
 
 
 @tool("index_files")
@@ -201,7 +219,9 @@ def get_system_datetime_tool() -> Dict[str, Any]:
         "datetime": now.strftime("%Y-%m-%d %H:%M:%S"),
         "iso": now.isoformat(),
         "timestamp": int(now.timestamp()),
-        "timezone": str(now.astimezone().tzinfo) if now.astimezone().tzinfo else "Unknown",
+        "timezone": str(now.astimezone().tzinfo)
+        if now.astimezone().tzinfo
+        else "Unknown",
     }
 
 
@@ -211,6 +231,7 @@ weather_tool = OpenWeatherMapQueryRun(api_wrapper=weather_wrapper)
 
 # File Management Tools
 from os import getenv
+
 working_directory = getenv("DATASTORE_DIR")
 toolkit = FileManagementToolkit(root_dir=working_directory)
 file_management_tools = toolkit.get_tools()
@@ -232,6 +253,7 @@ def get_vectorless_tools() -> List:
         index_urls_tool,
         sleep_tool,
         get_background_task_status_tool,
+        get_all_tasks_tool,
         send_email_task_tool,
         schedule_task_tool,
         get_system_datetime_tool,
