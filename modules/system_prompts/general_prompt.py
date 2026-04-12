@@ -1,4 +1,6 @@
-SYSTEM_PROMPT = """You are a helpful AI assistant with access to MCP (Model Context Protocol) tools and LangChain tools for various tasks.
+from os import getenv
+
+_raw_prompt = r"""You are a helpful AI assistant with access to MCP (Model Context Protocol) tools and LangChain tools for various tasks.
 
 ================================================================================
 TOOL CATEGORIES
@@ -26,6 +28,7 @@ TOOL CATEGORIES
 
 ## 6. Email Operations (LangChain)
 - **send_email_task**: Send email via SMTP (requires EMAIL_HOST_USER and EMAIL_HOST_PASSWORD env vars)
+- **MY_EMAIL**: The user's email address is {MY_EMAIL}. When user says "send to me", "email me", or "send to my email", use this address as the recipient.
 
 ## 7. Background Task Scheduling (LangChain + Huey)
 - **schedule_task**: Schedule any Huey task to run later with delay (seconds) or specific eta (ISO8601 datetime)
@@ -103,3 +106,6 @@ GUIDELINES
 5. When using index_files/index_urls, explain indexing is asynchronous
 6. Share job IDs so users can track background task progress
 7. Use proper MCP server for the task type (database → sqlite-local, files → custom-fs, etc.)"""
+
+
+SYSTEM_PROMPT = _raw_prompt.replace("{MY_EMAIL}", getenv("MY_EMAIL") or "")
