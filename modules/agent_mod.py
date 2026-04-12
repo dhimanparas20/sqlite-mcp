@@ -1,9 +1,6 @@
 import asyncio
 import json
 import os
-from pathlib import Path
-from typing import Literal, Optional
-
 from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
@@ -18,7 +15,9 @@ from langchain_core.messages import (
 )
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from mcp.client.streamable_http import streamable_http_client
+from pathlib import Path
 from rich import print
+from typing import Literal, Optional
 
 from mcps import MCP_TOOLS
 from modules import (
@@ -31,7 +30,7 @@ from modules.tools import get_vectorless_tools
 logger = get_logger(name="APP", show_pid=False, show_time=True)
 load_dotenv()
 
-CHAT_HISTORY_FILE = Path(__file__).parent / "../datastore/internal/chat_history.json"
+CHAT_HISTORY_FILE = Path(f"{os.getenv("INTERNAL_DIR")}/chat_history.json")
 MAX_HISTORY = 30
 
 

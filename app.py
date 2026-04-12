@@ -1,16 +1,16 @@
 import json
+import os
+import uvicorn
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
-from typing import List, Optional
-
-import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from pydantic import BaseModel
+from typing import List, Optional
 
 from modules import get_logger
 from modules.agent_mod import MCPAgentModule
@@ -23,6 +23,14 @@ logger = get_logger(name="FastAPI", show_pid=False, show_time=True)
 async def lifespan(app: FastAPI):
     global agent
     logger.info("Starting MCP Hub server...")
+
+    DATASTORE_DIR = Path(os.getenv("DATASTORE_DIR"))
+    try:
+        DATASTORE_DIR.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Datastore directory ensured at {DATASTORE_DIR}")
+    except PermissionError as e:
+        logger.warning(f"Cannot create datastore directory: {e}")
+
     agent = MCPAgentModule()
     logger.info("Initializing AI agent...")
     await agent.init()
@@ -48,16 +56,19 @@ app.add_middleware(
 
 SCRIPT_DIR = Path(__file__).parent
 TEMPLATES_DIR = SCRIPT_DIR / "templates"
-HISTORY_FILE = SCRIPT_DIR / "datastore" / "internal" / "api_chat_history.json"
+HISTORY_FILE = Path(os.getenv("INTERNAL_DIR")) / "api_chat_history.json"
 MAX_HISTORY = 30
 
 agent: Optional[MCPAgentModule] = None
 
 
 def _ensure_history_file() -> None:
-    HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if not HISTORY_FILE.exists():
-        HISTORY_FILE.write_text("[]")
+    try:
+        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if not HISTORY_FILE.exists():
+            HISTORY_FILE.write_text("[]")
+    except PermissionError as e:
+        logger.warning(f"Cannot create history file: {e}")
 
 
 def _load_api_history() -> List[dict]:

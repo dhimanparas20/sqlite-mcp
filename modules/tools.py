@@ -1,14 +1,13 @@
 """LangChain tools for document indexing and querying using PageIndex."""
 
 from datetime import datetime
-from typing import List, Union, Optional, Dict, Any
-
 from dotenv import load_dotenv
 from langchain.tools import tool
 from langchain_community.agent_toolkits import FileManagementToolkit
 from langchain_community.tools.openweathermap.tool import OpenWeatherMapQueryRun
 from langchain_community.utilities import OpenWeatherMapAPIWrapper
 from pageindex import PageIndexClient
+from typing import List, Union, Optional, Dict, Any
 
 from modules import get_logger
 from tasks import (
@@ -211,7 +210,8 @@ weather_wrapper = OpenWeatherMapAPIWrapper()
 weather_tool = OpenWeatherMapQueryRun(api_wrapper=weather_wrapper)
 
 # File Management Tools
-working_directory = "./datastore"
+from os import getenv
+working_directory = getenv("DATASTORE_DIR")
 toolkit = FileManagementToolkit(root_dir=working_directory)
 file_management_tools = toolkit.get_tools()
 

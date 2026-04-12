@@ -3,12 +3,11 @@ from __future__ import annotations
 import atexit
 import os
 from dataclasses import asdict
-from pathlib import Path
-from typing import Any
-
 from fastmcp import FastMCP
+from pathlib import Path
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from typing import Any
 
 from modules.logger import get_logger
 from modules.sqlite3 import SQLiteUtils
@@ -16,7 +15,7 @@ from modules.sqlite3 import SQLiteUtils
 logger = get_logger("SQLITE")
 
 DEFAULT_DB_PATH = os.getenv(
-    "SQLITE_MCP_DB_PATH",
+    "SQLITE_DB_PATH",
     str(Path(__file__).resolve().parent / "./datastore/internal/sqlite3.db"),
 )
 
@@ -594,11 +593,10 @@ if __name__ == "__main__":
     try:
         _set_db_path(
             os.getenv(
-                "SQLITE_MCP_DB_PATH",
+                "SQLITE_DB_PATH",
                 DEFAULT_DB_PATH,
             ),
         )
-        logger.info(f"[init] Database path: {DEFAULT_DB_PATH}")
         mcp.run(
             transport="streamable-http",
             host=os.getenv("FASTMCP_HOST", "0.0.0.0"),

@@ -18,7 +18,7 @@ logger = get_logger("DOWNLOADER")
 DOWNLOADS_SUBDIR = "downloads"
 
 DEFAULT_DOWNLOAD_DIR = os.getenv(
-    "DOWNLOAD_MCP_DIR",
+    "DOWNLOADS_DIR",
     str(Path(__file__).resolve().parent.parent / "datastore" / DOWNLOADS_SUBDIR),
 )
 

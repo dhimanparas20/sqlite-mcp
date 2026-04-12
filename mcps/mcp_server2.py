@@ -1,15 +1,16 @@
-from fastmcp import FastMCP
 import os
 import shutil
-from pathlib import Path
 from datetime import datetime
+from fastmcp import FastMCP
+from pathlib import Path
 from typing import Any
+
 from modules.logger import get_logger
 
 logger = get_logger("FILESYSTEM")
 
 mcp = FastMCP("filesystem")
-ROOT = os.getcwd()
+ROOT = os.getenv("DATASTORE_DIR", "/app/datastore")
 if ROOT.endswith("\\"):
     ROOT = ROOT[:-1]
 

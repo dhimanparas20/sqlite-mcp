@@ -8,6 +8,7 @@ MCP_TOOLS = {
         "url": "http://mcp_sql:8000/mcp/",
         "transport": "streamable-http",
     },
+    # Not using this one because we already have a tool for it
     # "custom-fs": {
     #     "url": "http://mcp_fs:8005/mcp",
     #     "transport": "streamable-http",
@@ -44,7 +45,7 @@ MCP_TOOLS = {
     "pageindex": {
         "transport": "http",
         "url": "https://api.pageindex.ai/mcp",
-        "headers": {"Authorization": f"Bearer {os.getenv("PAGE_INDEX_API_KEY")}"},
+        "headers": {"Authorization": f"Bearer {os.getenv('PAGE_INDEX_API_KEY')}"},
     },
     # "openweather-mcp": {
     #     "command": "uvx",

@@ -25,11 +25,12 @@ RUN apt-get update && \
 # Copy the uv and uvx binaries
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# Lets not use Node For now
 # Copy Node.js, npm, and npx from the official Node image
-COPY --from=node:20-slim /usr/local/bin/node /usr/local/bin/
-COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
-RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
-    ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+#COPY --from=node:20-slim /usr/local/bin/node /usr/local/bin/
+#COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+#RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+#    ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # Set working directory
 WORKDIR /app
@@ -43,12 +44,5 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Adding Aliases
 RUN echo 'alias ipython="uv run ipython"' >> /root/.bashrc
-
-## Copy the entire application code into the container
-#COPY . .
-#
-## Install the project itself (deps already cached from above)
-#RUN --mount=type=cache,target=/root/.cache/uv \
-#    uv sync --frozen --no-dev --no-editable
 
 EXPOSE 8001 8000 8005 8010
