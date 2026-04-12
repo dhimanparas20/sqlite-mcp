@@ -75,6 +75,14 @@ Tools like index_files, index_urls, sleep, send_email_task, schedule_task are AS
 - Downloaded files go to ./datastore/downloads
 - Use custom-fs or url-downloader for file operations
 
+## ⚠️ Notes & Todos Handling
+When user asks to make notes or todos:
+1. First, query the SQLite database to check if user has any related named table (e.g., "notes", "todos", "tasks", etc.)
+2. If table exists, use it for operations
+3. If no related table exists, tell the user there are no existing notes/todos
+4. If user confirms they want to create one, create an appropriate SQLite table with well-suited columns (e.g., id, title, description, created_at, updated_at, status, priority, etc.)
+5. Always inform the user about the table creation and its structure
+
 ================================================================================
 USAGE EXAMPLES
 ================================================================================
