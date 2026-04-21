@@ -13,12 +13,15 @@ x-common: &common
   init: true
   environment:
     PYTHONPATH: /app
+    SQLITE_DB_PATH: /app/datastore/internal/sqlite3.db
   networks:
     - caddy
   volumes:
     - ./modules:/app/modules
     - ./datastore:/app/datastore
     - ./mcps:/app/mcps
+  extra_hosts:
+    - host.docker.internal:host-gateway
 
 networks:
   caddy:
@@ -33,10 +36,8 @@ services:
       ALLOW_EMPTY_PASSWORD: "yes"
     command:
       - /opt/bitnami/scripts/valkey/run.sh
-      # Load the JSON module
       - --loadmodule
       - "/opt/bitnami/valkey/modules/libjson.so"
-      # Keep the password as a single argv token
       - --requirepass
       - "testpass"
       - --appendonly
@@ -66,7 +67,8 @@ services:
   mcp_sql:
     <<: *common
     container_name: mcp_sql
-    command: [ "uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_sql" ]
+    command: >
+      sh -c "mkdir -p /app/datastore/internal && python -m mcps.mcp_sql"
     ports:
       - "8000:8000"
     healthcheck:
@@ -76,25 +78,11 @@ services:
       retries: 5
       start_period: 20s
 
-  #  mcp_fs:
-  #    <<: *common
-  #    container_name: mcp_fs
-  #    command: >
-  #      sh -c "mkdir -p /app/datastore/internal /app/datastore/downloads && chmod -R 777 /app/datastore &&
-  #      uv run --frozen --no-sync python -m mcps.mcp_fs"
-  #    ports:
-  #      - "8005:8005"
-  #    healthcheck:
-  #      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8005/health || exit 1"]
-  #      interval: 10m
-  #      timeout: 5s
-  #      retries: 5
-  #      start_period: 20s
-
   mcp_downloader:
     <<: *common
     container_name: mcp_downloader
-    command: [ "uv", "run", "--frozen", "--no-sync", "python", "-m", "mcps.mcp_downloader" ]
+    command: >
+      sh -c "mkdir -p /app/datastore/internal /app/datastore/downloads && python -m mcps.mcp_downloader"
     ports:
       - "8010:8010"
     healthcheck:
@@ -107,7 +95,7 @@ services:
   huey:
     <<: *common
     command: >
-      uv run huey_consumer.py tasks.tasks.huey -k thread -w 2 --flush-locks info
+      huey_consumer tasks.tasks.huey -k thread -w 2 --flush-locks info
     container_name: huey
     volumes:
       - ./modules:/app/modules
@@ -118,7 +106,7 @@ services:
     healthcheck:
       test: [
         "CMD-SHELL",
-        "test ! -f /tmp/drain && uv run --frozen --no-sync python -c \"import os,sys; import redis; r=redis.Redis.from_url(os.getenv('REDIS_URL')); sys.exit(0 if r.ping() else 1)\""
+        "python -c \"import os,sys; import redis; r=redis.Redis.from_url(os.getenv('REDIS_URL')); sys.exit(0 if r.ping() else 1)\""
       ]
       interval: 3m
       timeout: 5s
@@ -129,7 +117,8 @@ services:
   app:
     <<: *common
     container_name: app
-    command: [ "uv", "run", "--frozen", "--no-sync", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--proxy-headers", "--workers", "1", "--use-colors", "--log-level", "debug" ]
+    command: >
+      uvicorn app:app --host 0.0.0.0 --port 8001 --reload --proxy-headers --workers 1 --use-colors --log-level debug
     ports:
       - "8001:8001"
     volumes:
@@ -140,8 +129,6 @@ services:
       - ./app.py:/app/app.py
       - ./mcps/__init__.py:/app/mcps/__init__.py
     depends_on:
-      #      mcp_fs:
-      #        condition: service_healthy
       mcp_sql:
         condition: service_healthy
       mcp_downloader:
@@ -149,7 +136,7 @@ services:
       huey:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "test ! -f /tmp/drain && curl -f http://localhost:8001/ping" ]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8001/ping" ]
       interval: 5m
       timeout: 5s
       retries: 3

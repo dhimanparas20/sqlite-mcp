@@ -246,7 +246,7 @@ def schedule_task(
     elif delay:
         job = task_func.schedule(args=args, kwargs=kwargs, delay=delay)
     else:
-        job = task_func.call(args=args, kwargs=kwargs)
+        job = task_func(*args, **kwargs)
 
     logger.info(f"[schedule_task] Scheduled {task_name} with job_id: {job.id}")
     return {"success": True, "id": job.id, "task": task_name}
