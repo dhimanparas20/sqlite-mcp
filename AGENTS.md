@@ -10,7 +10,9 @@ You are operating **MCP Hub**, an AI agent platform that gives LLMs real-world c
 
 - **MCP Servers** (FastMCP-based): SQLite, Filesystem, Downloader, Web Search, Web Fetch, Time, PageIndex
 - **LangChain Tools**: Background task queuing (Huey), email, weather, file management, scheduling
+- **Embedding & Vector Search**: ChromaDB-powered semantic search over files and URLs
 - **Multi-Provider LLM Support**: OpenAI, Google Gemini, Groq, OpenRouter, NVIDIA
+- **Multi-Provider Embedding Support**: OpenAI, Google, OpenRouter, NVIDIA
 
 **Your job**: Understand user intent, select the right tool(s), execute them in the correct order, and respond helpfully.
 
@@ -45,11 +47,17 @@ ChatResponse (JSON)
 | `app.py` | FastAPI app | Handles HTTP lifecycle, chat API, history management. Initializes `MCPAgentModule` on startup. |
 | `modules/agent_mod.py` | Agent orchestrator | `MCPAgentModule` class. Loads MCP tools, LangChain tools, LLM, system prompt, and chat history. `invoke_agent()` is the main entry point. |
 | `modules/agent_utils.py` | LLM factory | `create_llm()` dynamically imports the correct LangChain chat model class based on `MODEL_PROVIDER` env var. Registry: openai → ChatOpenAI, google → ChatGoogleGenerativeAI, openrouter → ChatOpenRouter, groq → ChatGroq, nvidia → ChatNVIDIA. |
-| `modules/tools.py` | LangChain tools | All `@tool` decorated functions. Background tasks return job IDs. File management tools use FileManagementToolkit. |
+| `modules/embedder.py` | Embedding & ChromaDB | `create_embeddings()` factory (mirrors `create_llm`), `embed_and_store()` pipeline, `query_documents()` search, `list_collections()`, `clear_collection()`, `delete_collection()`. Supports PDF, MD, CSV, TXT, JSON, DOCX, HTML, XML, and web URLs. |
+| `modules/tools/__init__.py` | Tool registry | Re-exports all tools from submodules. Contains `get_vectorless_tools()` which returns the full tool list for the agent. |
+| `modules/tools/background.py` | Background task tools | `index_files`, `index_urls`, `send_email_task`, `schedule_task`, `sleep`, `get_background_task_status`, `get_all_tasks`. All return job IDs. |
+| `modules/tools/datetime.py` | DateTime tool | `get_system_datetime` — MUST use for all time-based calculations. |
+| `modules/tools/embedding.py` | ChromaDB tools | `embed_file`, `query_embedded_data`, `list_chroma_collections`, `clear_chroma_collection`, `delete_chroma_collection`. |
+| `modules/tools/file_management.py` | File ops | `FileManagementToolkit` tools (read, write, copy, move, delete, list, make, move_dir). Sandboxed to `DATASTORE_DIR`. |
+| `modules/tools/weather.py` | Weather tool | `weather_tool` via OpenWeatherMap. |
 | `tasks/tasks.py` | Huey tasks | `index_documents_task`, `send_email_task`, `test_sleep_task`, `test_schedule_task`. `schedule_task()` is the generic scheduler. `get_job_status()` checks task status. |
 | `mcps/__init__.py` | MCP registry | `MCP_TOOLS` dict configures all MCP servers with transport type (stdio or streamable-http), URLs, commands, and env vars. |
 | `mcps/mcp_sql.py` | SQLite MCP server | FastMCP server exposing SQLite CRUD operations. Runs on port 8000. Uses `SQLiteUtils` from `modules/sqlite3/sqlite_1.py`. |
-| `mcps/mcp_fs.py` | Filesystem MCP server | FastMCP server for file operations. Runs on port 8005. **Currently NOT registered in `MCP_TOOLS`** — file ops come from `FileManagementToolkit` in `modules/tools.py`. |
+| `mcps/mcp_fs.py` | Filesystem MCP server | FastMCP server for file operations. Runs on port 8005. **Currently NOT registered in `MCP_TOOLS`** — file ops come from `FileManagementToolkit` in `modules/tools/file_management.py`. |
 | `mcps/mcp_downloader.py` | Downloader MCP server | FastMCP server for URL downloads with progress tracking. Runs on port 8010. |
 | `modules/system_prompts/general_prompt.py` | Main system prompt | Injected as the first message on every request. Describes all tools, critical rules, and usage examples. `{MY_EMAIL}` is substituted from env. |
 | `modules/system_prompts/local_mcp_sqlit3_prompt.py` | SQLite prompt | Specialized prompt for pure SQLite interactions (not the main agent prompt). |
@@ -68,7 +76,7 @@ During `MCPAgentModule.init()`:
 
 1. `MultiServerMCPClient(MCP_TOOLS)` connects to all configured MCP servers
 2. `get_tools()` fetches MCP tool schemas dynamically
-3. `get_vectorless_tools()` loads LangChain tools from `modules/tools.py`
+3. `get_vectorless_tools()` loads LangChain tools from `modules/tools/__init__.py`
 4. `all_tools = mcp_tools + vectorless_tools`
 5. `create_agent(model=llm, tools=all_tools)` creates the LangChain agent
 
@@ -86,6 +94,9 @@ When reasoning about which tool to use, categorize the user request:
 | Query indexed documents | **MCP: pageindex** | Semantic search over PDFs/notes |
 | Index files for AI search | **LangChain: index_files** | Queues `index_documents_task` |
 | Index URLs for AI search | **LangChain: index_urls** | Queues `index_documents_task` |
+| **Embed a file/URL locally** | **LangChain: embed_file** | **Embeds to ChromaDB for local semantic search** |
+| **Search embedded content** | **LangChain: query_embedded_data** | **Semantic search over ChromaDB** |
+| **Manage vector collections** | **LangChain: chroma tools** | **list, clear, delete collections** |
 | Send an email | **LangChain: send_email_task** | Queues `send_email_task` |
 | Schedule a future task | **LangChain: schedule_task** | Generic Huey scheduler |
 | Check if a task is done | **LangChain: get_background_task_status** | Job status lookup |
@@ -108,6 +119,18 @@ Complex requests require multiple tool calls in sequence:
 
 1. `sqlite-local.create_table` → create `todos` table
 2. `sqlite-local.insert_rows` → insert the todo item
+
+**Example: "Embed this PDF and tell me what it says about revenue"**
+
+1. `embed_file_tool(source="./datastore/docs/report.pdf", collection_name="reports")` → embed the file
+2. `query_embedded_data_tool(query="revenue", collection_name="reports", k=5)` → search for relevant chunks
+3. Synthesize the results into a clear answer
+
+**Example: "Embed this webpage and summarize it"**
+
+1. `embed_file_tool(source="https://example.com/article", collection_name="web")` → embed the URL
+2. `query_embedded_data_tool(query="summary of the article", collection_name="web", k=10)` → get chunks
+3. Synthesize findings into a summary
 
 ---
 
@@ -203,9 +226,9 @@ Alternative downloader with a fixed output directory.
 
 ## 5. LangChain Tool Catalog
 
-All tools in `modules/tools.py`.
+Tools are organized in `modules/tools/` by category. All are re-exported via `modules/tools/__init__.py`.
 
-### 5.1 Background Task Tools (Return Job IDs)
+### 5.1 Background Task Tools (`modules/tools/background.py`)
 
 These tools queue work and return immediately. **Always share the job ID with the user.**
 
@@ -236,8 +259,6 @@ These tools queue work and return immediately. **Always share the job ID with th
 - For testing background task system
 - Returns: `{"success": true, "id": "job-id"}`
 
-### 5.2 Utility Tools
-
 **`get_background_task_status_tool(job_id: str)`**
 - Checks Huey result storage
 - Returns: `{"status": "pending" | "finished" | "not_found", "result": any}`
@@ -246,17 +267,48 @@ These tools queue work and return immediately. **Always share the job ID with th
 - Lists scheduled and pending tasks in Huey queue
 - Returns: `{"scheduled": [...], "pending": [...]}`
 
+### 5.2 DateTime Tool (`modules/tools/datetime.py`)
+
 **`get_system_datetime_tool()`**
 - Returns current system time
 - **CRITICAL**: Must use this for ALL time-based calculations
 - Returns: `{"datetime": "2026-04-10 23:00:00", "iso": "...", "timestamp": int, "timezone": "..."}`
+
+### 5.3 Embedding & Vector Store Tools (`modules/tools/embedding.py`)
+
+These tools interact with the local ChromaDB vector store for semantic search over files and URLs.
+
+**`embed_file_tool(source: str, collection_name: str = "default")`**
+- Embeds a file or URL into ChromaDB
+- Supported formats: PDF, MD, CSV, TXT, JSON, DOCX, HTML, XML, web URLs
+- Pipeline: Load → Chunk (1000 chars, 200 overlap) → Embed → Store
+- Returns: `{"ok": true, "chunks": int, "collection": str, "persist_dir": str}`
+
+**`query_embedded_data_tool(query: str, collection_name: str = "default", k: int = 4)`**
+- Semantic search over embedded documents
+- Returns top-k matching chunks with content and metadata
+- Returns: `{"ok": true, "query": str, "collection": str, "results": [{"content": str, "metadata": dict}]}`
+
+**`list_chroma_collections_tool()`**
+- Lists all ChromaDB collections with document counts
+- Returns: `{"ok": true, "collections": [{"name": str, "count": int}], "count": int}`
+
+**`clear_chroma_collection_tool(collection_name: str = "default")`**
+- Deletes all documents from a collection (keeps the collection)
+- Returns: `{"ok": true, "collection": str, "deleted": int}`
+
+**`delete_chroma_collection_tool(collection_name: str = "default")`**
+- Permanently deletes an entire collection and all its data
+- Returns: `{"ok": true, "collection": str, "deleted": true}`
+
+### 5.4 Weather Tool (`modules/tools/weather.py`)
 
 **`weather_tool`**
 - LangChain community tool using OpenWeatherMap
 - Requires `OPENWEATHERMAP_API_KEY` env var
 - Query format: `"What's the weather in Tokyo?"`
 
-### 5.3 File Management Tools
+### 5.5 File Management Tools (`modules/tools/file_management.py`)
 
 From `FileManagementToolkit(root_dir=os.getenv("DATASTORE_DIR"))`:
 
@@ -273,9 +325,53 @@ From `FileManagementToolkit(root_dir=os.getenv("DATASTORE_DIR"))`:
 
 ---
 
-## 6. Critical Rules
+## 6. Embedding System (`modules/embedder.py`)
 
-### 6.1 Time-Based Operations
+### 6.1 Embedding Provider Registry
+
+Mirrors the `create_llm()` pattern from `agent_utils.py`. The `EMBEDDING_REGISTRY` maps provider names to their LangChain class configurations:
+
+| Provider | Class | Module | Model Env Var | API Key Env Var |
+|----------|-------|--------|--------------|-----------------|
+| `openai` | `OpenAIEmbeddings` | `langchain_openai` | `OPENAI_EMBEDDINGS_MODEL` | `OPENAI_API_KEY` |
+| `google` | `GoogleGenerativeAIEmbeddings` | `langchain_google_genai` | `GOOGLE_EMBEDDINGS_MODEL` | `GOOGLE_API_KEY` |
+| `openrouter` | `OpenAIEmbeddings` | `langchain_openai` | `OPEN_ROUTER_EMBEDDINGS_MODEL` | `OPEN_ROUTER_API_KEY` |
+| `nvidia` | `NVIDIAEmbeddings` | `langchain_nvidia_ai_endpoints` | `NVIDIA_EMBEDDINGS_MODEL` | `NVIDIA_API_KEY` |
+
+**`create_embeddings(model_name=None, api_key=None, provider="openai")`**
+- Factory function that returns a LangChain embeddings instance
+- Falls back to env vars for model name and API key
+- Uses `EMBEDDING_PROVIDER` env var if provider not specified
+
+### 6.2 Document Loaders
+
+`load_documents(source: str | list[str])` auto-detects file type and uses the appropriate loader:
+
+| Extension | Loader |
+|-----------|--------|
+| `.pdf` | `PyPDFLoader` |
+| `.md`, `.markdown` | `UnstructuredMarkdownLoader` |
+| `.csv` | `CSVLoader` |
+| `.txt` | `TextLoader` |
+| `.json` | `JSONLoader` |
+| `.docx`, `.doc` | `Docx2txtLoader` |
+| `.html`, `.htm` | `UnstructuredHTMLLoader` |
+| `.xml` | `UnstructuredXMLLoader` |
+| `http://...`, `https://...` | `WebBaseLoader` |
+| Other | Falls back to `TextLoader` |
+
+### 6.3 ChromaDB Storage
+
+- Persisted at `CHROMA_DIR` (default: `./datastore/internal/chroma/`)
+- Uses `langchain-chroma` for LangChain integration
+- Collections are created automatically on first embed
+- Data survives container restarts
+
+---
+
+## 7. Critical Rules
+
+### 7.1 Time-Based Operations
 
 **FOR ANY TIME-BASED ACTIVITY** (scheduling tasks, calculating delays, etc.):
 
@@ -292,7 +388,7 @@ User: "Send email in 3 minutes"
 → Tell user: "Email scheduled for 22:57:00, Job ID: abc-123"
 ```
 
-### 6.2 Background Tasks & Job IDs
+### 7.2 Background Tasks & Job IDs
 
 Tools like `index_files`, `index_urls`, `send_email_task`, `schedule_task`, `sleep` are **ASYNCHRONOUS**:
 
@@ -301,14 +397,14 @@ Tools like `index_files`, `index_urls`, `send_email_task`, `schedule_task`, `sle
 - **ALWAYS** share the job ID with the user
 - Use `get_background_task_status` with the job ID to check completion
 
-### 6.3 File Operations
+### 7.3 File Operations
 
 - All file creation/imports should check `./datastore` directory first
 - Downloaded files go to `./datastore/downloads`
 - Use `file_management` tools or `downloader` MCP for file operations
 - When creating new files, ensure parent directories exist
 
-### 6.4 Notes & Todos Handling
+### 7.4 Notes & Todos Handling
 
 When user asks to make notes or todos:
 
@@ -318,31 +414,46 @@ When user asks to make notes or todos:
 4. If user confirms they want to create one, create an appropriate SQLite table with well-suited columns (e.g., `id`, `title`, `description`, `created_at`, `updated_at`, `status`, `priority`)
 5. Always inform the user about the table creation and its structure
 
-### 6.5 Database Safety
+### 7.5 Database Safety
 
 - Use `execute_sql` for raw queries, but prefer structured tools (`select_rows`, `insert_rows`, etc.) when possible
 - `flush_database` drops ALL tables — warn the user before using
 - Always check `table_info` before assuming column names
 
+### 7.6 Embedding Workflow
+
+When a user asks to read, analyze, or extract content from a file (PDF, MD, CSV, etc.) or URL:
+
+1. **Embed first**: `embed_file_tool(source="...", collection_name="...")`
+2. **Then query**: `query_embedded_data_tool(query="...", collection_name="...", k=5)`
+3. Synthesize the returned chunks into a clear answer
+
+**Use `collection_name` to organize embeddings by topic or source** (e.g., "reports", "web-articles", "project-docs").
+
+**ChromaDB management:**
+- Use `list_chroma_collections_tool()` to see what's embedded
+- Use `clear_chroma_collection_tool()` to empty a collection
+- Use `delete_chroma_collection_tool()` to remove a collection entirely
+
 ---
 
-## 7. System Prompt Architecture
+## 8. System Prompt Architecture
 
-### 7.1 Main System Prompt
+### 8.1 Main System Prompt
 
 Located in `modules/system_prompts/general_prompt.py`.
 
 **Structure:**
-1. **Tool Categories** — Organized by domain (Database, Filesystem, Web, Time, Indexing, Email, Scheduling, Utility, File Management)
+1. **Tool Categories** — Organized by domain (Database, Filesystem, Web, Time, Indexing, Email, Scheduling, Utility, File Management, **Embedding & Vector Store**)
 2. **Available Tasks for Scheduling** — Lists Huey tasks that can be scheduled
-3. **Critical Rules** — Time rules, background task rules, file operation rules, notes/todos rules
-4. **Usage Examples** — Concrete multi-step examples
+3. **Critical Rules** — Time rules, background task rules, file operation rules, notes/todos rules, **embedding workflow rules**
+4. **Usage Examples** — Concrete multi-step examples including embed→query workflows
 5. **Guidelines** — General behavior rules
 
 **Dynamic Substitution:**
 - `{MY_EMAIL}` is replaced with the value of `MY_EMAIL` env var at import time
 
-### 7.2 SQLite-Specific Prompt
+### 8.2 SQLite-Specific Prompt
 
 Located in `modules/system_prompts/local_mcp_sqlit3_prompt.py`.
 
@@ -353,16 +464,16 @@ Used for SQLite-focused interactions. Contains:
 
 ---
 
-## 8. Chat History Management
+## 9. Chat History Management
 
-### 8.1 History Files
+### 9.1 History Files
 
 | File | Purpose | Max Entries |
 |------|---------|-------------|
 | `datastore/internal/chat_history.json` | Agent's internal conversation history | 30 |
 | `datastore/internal/api_chat_history.json` | API-exposed chat history | 30 |
 
-### 8.2 History Format
+### 9.2 History Format
 
 ```json
 [
@@ -371,7 +482,7 @@ Used for SQLite-focused interactions. Contains:
 ]
 ```
 
-### 8.3 History Lifecycle
+### 9.3 History Lifecycle
 
 - Loaded during `MCPAgentModule.init()` and `invoke_agent()`
 - Saved after each successful response
@@ -380,9 +491,9 @@ Used for SQLite-focused interactions. Contains:
 
 ---
 
-## 9. Common Agent Patterns
+## 10. Common Agent Patterns
 
-### 9.1 Web Search + Summarize
+### 10.1 Web Search + Summarize
 
 ```
 1. ddg-search(query="...")
@@ -390,7 +501,7 @@ Used for SQLite-focused interactions. Contains:
 3. Synthesize findings into a clear answer
 ```
 
-### 9.2 Database Workflow
+### 10.2 Database Workflow
 
 ```
 1. list_tables (check if table exists)
@@ -399,7 +510,7 @@ Used for SQLite-focused interactions. Contains:
 4. Confirm results to user
 ```
 
-### 9.3 Email Workflow
+### 10.3 Email Workflow
 
 ```
 1. If scheduling: get_system_datetime_tool()
@@ -408,7 +519,7 @@ Used for SQLite-focused interactions. Contains:
 4. Report job ID to user
 ```
 
-### 9.4 Document Indexing Workflow
+### 10.4 Document Indexing Workflow (PageIndex — Cloud)
 
 ```
 1. index_files_tool(file_paths=["..."]) OR index_urls_tool(urls=["..."])
@@ -417,7 +528,16 @@ Used for SQLite-focused interactions. Contains:
 4. Once finished, user can query: pageindex tool
 ```
 
-### 9.5 Task Scheduling Workflow
+### 10.5 Document Embedding Workflow (ChromaDB — Local)
+
+```
+1. embed_file_tool(source="file.pdf" or "https://...", collection_name="my-docs")
+2. Report: "Embedded N chunks into collection 'my-docs'"
+3. query_embedded_data_tool(query="what does it say about X?", collection_name="my-docs", k=5)
+4. Synthesize returned chunks into a clear answer
+```
+
+### 10.6 Task Scheduling Workflow
 
 ```
 1. get_system_datetime_tool() → get current time
@@ -432,9 +552,9 @@ Used for SQLite-focused interactions. Contains:
 
 ---
 
-## 10. LLM Provider Details
+## 11. LLM Provider Details
 
-### 10.1 Configuration
+### 11.1 Configuration
 
 Set via environment variables:
 
@@ -446,20 +566,33 @@ Set via environment variables:
 | OpenRouter | `OPEN_ROUTER_CHAT_MODEL` | `OPEN_ROUTER_API_KEY` |
 | NVIDIA | `NVIDIA_MODEL` | `NVIDIA_API_KEY` |
 
-### 10.2 Temperature & Tokens
+### 11.2 Embedding Provider Configuration
+
+| Provider | Model Env Var | API Key Env Var |
+|----------|--------------|-----------------|
+| OpenAI | `OPENAI_EMBEDDINGS_MODEL` | `OPENAI_API_KEY` |
+| Google | `GOOGLE_EMBEDDINGS_MODEL` | `GOOGLE_API_KEY` |
+| OpenRouter | `OPEN_ROUTER_EMBEDDINGS_MODEL` | `OPEN_ROUTER_API_KEY` |
+| NVIDIA | `NVIDIA_EMBEDDINGS_MODEL` | `NVIDIA_API_KEY` |
+
+Set `EMBEDDING_PROVIDER` env var to choose the embedding provider (default: `openai`).
+
+### 11.3 Temperature & Tokens
 
 - `MODEL_TEMPERATURE`: 0.0 = deterministic, 1.0 = creative (default: 0.4)
 - `MAX_TOKENS`: Maximum response length (default: 1500)
 
-### 10.3 Fallback Behavior
+### 11.4 Fallback Behavior
 
 If `model_name` is not provided to `create_llm()`, it falls back to the provider's env var.
 If `api_key` is not provided, it falls back to the provider's env var.
 If neither is available, raises `ValueError`.
 
+Same pattern applies to `create_embeddings()`.
+
 ---
 
-## 11. Docker Service Interdependencies
+## 12. Docker Service Interdependencies
 
 ```
 valkey (no deps)
@@ -477,46 +610,54 @@ The `app` service waits for `mcp_sql` and `mcp_downloader` health checks before 
 
 ---
 
-## 12. Debugging Guide for Agents
+## 13. Debugging Guide for Agents
 
-### 12.1 Agent Not Responding
+### 13.1 Agent Not Responding
 
 - Check `/ping` — is the FastAPI app running?
 - Check agent initialization logs — did `MCPAgentModule.init()` complete?
 - Verify LLM API key is valid and has credits
 
-### 12.2 Tool Call Failing
+### 13.2 Tool Call Failing
 
 - Check tool name spelling — MCP tools use kebab-case names in the registry but the actual tool names may differ
 - Check parameters — are required params provided?
 - For MCP tools: check if the MCP server container is running (`docker compose ps`)
 - For background tasks: check Huey worker logs (`docker compose logs huey`)
 
-### 12.3 SQLite Errors
+### 13.3 SQLite Errors
 
 - Check `active_database()` to confirm which DB file is being used
 - Use `table_info()` to verify schema before operations
 - For `execute_sql`, ensure SQL syntax is valid SQLite
 - Check if table exists with `list_tables()` before referencing it
 
-### 12.4 Background Task Never Completes
+### 13.4 Background Task Never Completes
 
 - Verify `huey` container is running
 - Check Redis connectivity: `docker compose exec valkey valkey-cli -a testpass ping`
 - Verify `REDIS_URL` env var matches Valkey password
 - Check Huey logs for error traces
 
-### 12.5 File Operation Errors
+### 13.5 File Operation Errors
 
 - FileManagementToolkit is restricted to `DATASTORE_DIR`
 - Check `list_directory` to verify paths exist
 - Use relative paths from `DATASTORE_DIR` root
 
+### 13.6 Embedding / ChromaDB Errors
+
+- ChromaDB data persists at `CHROMA_DIR` (default: `./datastore/internal/chroma/`)
+- Deleting this folder resets all embeddings
+- Ensure `EMBEDDING_PROVIDER` is set and the corresponding API key is valid
+- Use `list_chroma_collections_tool()` to verify collections exist
+- Check embedding provider logs for API errors
+
 ---
 
-## 13. Adding New Capabilities
+## 14. Adding New Capabilities
 
-### 13.1 Adding an MCP Server
+### 14.1 Adding an MCP Server
 
 1. Add server config to `mcps/__init__.py` in `MCP_TOOLS`
 2. If custom implementation: create `mcps/mcp_<name>.py` with FastMCP instance
@@ -525,15 +666,16 @@ The `app` service waits for `mcp_sql` and `mcp_downloader` health checks before 
 5. Update `modules/system_prompts/general_prompt.py` to describe the new tool
 6. Restart services: `docker compose up -d`
 
-### 13.2 Adding a LangChain Tool
+### 14.2 Adding a LangChain Tool
 
-1. Define tool in `modules/tools.py` with `@tool("tool_name")` decorator
-2. Import any required clients/modules
-3. Add to `get_vectorless_tools()` return list
-4. Update `modules/system_prompts/general_prompt.py` with tool description
-5. Restart the `app` service
+1. Create a new file in `modules/tools/` (e.g., `modules/tools/my_tool.py`) or add to an existing category file
+2. Define tool with `@tool("tool_name")` decorator
+3. Import any required clients/modules
+4. Import and add to `get_vectorless_tools()` return list in `modules/tools/__init__.py`
+5. Update `modules/system_prompts/general_prompt.py` with tool description
+6. Restart the `app` service
 
-### 13.3 Adding a Huey Task
+### 14.3 Adding a Huey Task
 
 1. Define `@huey.task()` function in `tasks/tasks.py`
 2. Add to `tasks/__init__.py` exports
@@ -543,30 +685,34 @@ The `app` service waits for `mcp_sql` and `mcp_downloader` health checks before 
 
 ---
 
-## 14. Environment Quick Reference
+## 15. Environment Quick Reference
 
 | Variable | Required | Used By |
 |----------|----------|---------|
 | `MODEL_PROVIDER` | Yes | `agent_mod.py`, `agent_utils.py` |
-| `OPENAI_API_KEY` | If provider=openai | `agent_utils.py` |
-| `GOOGLE_API_KEY` | If provider=google | `agent_utils.py` |
+| `EMBEDDING_PROVIDER` | No | `embedder.py` (default: `openai`) |
+| `OPENAI_API_KEY` | If provider=openai | `agent_utils.py`, `embedder.py` |
+| `GOOGLE_API_KEY` | If provider=google | `agent_utils.py`, `embedder.py` |
 | `GROQ_API_KEY` | If provider=groq | `agent_utils.py` |
-| `OPEN_ROUTER_API_KEY` | If provider=openrouter | `agent_utils.py` |
-| `NVIDIA_API_KEY` | If provider=nvidia | `agent_utils.py` |
+| `OPEN_ROUTER_API_KEY` | If provider=openrouter | `agent_utils.py`, `embedder.py` |
+| `NVIDIA_API_KEY` | If provider=nvidia | `agent_utils.py`, `embedder.py` |
+| `OPENAI_EMBEDDINGS_MODEL` | No | `embedder.py` |
+| `OPEN_ROUTER_EMBEDDINGS_MODEL` | No | `embedder.py` |
 | `REDIS_URL` | Yes | `tasks/tasks.py` (Huey) |
 | `PAGE_INDEX_API_KEY` | No | `tasks/tasks.py`, `mcps/__init__.py` |
 | `EMAIL_HOST_USER` | No | `tasks/tasks.py` (SMTP) |
 | `EMAIL_HOST_PASSWORD` | No | `tasks/tasks.py` (SMTP) |
-| `OPENWEATHERMAP_API_KEY` | No | `modules/tools.py` |
+| `OPENWEATHERMAP_API_KEY` | No | `modules/tools/weather.py` |
 | `MY_EMAIL` | No | `modules/system_prompts/general_prompt.py` |
-| `DATASTORE_DIR` | Yes | `app.py`, `mcps/mcp_fs.py`, `modules/tools.py` |
+| `DATASTORE_DIR` | Yes | `app.py`, `mcps/mcp_fs.py`, `modules/tools/file_management.py` |
 | `INTERNAL_DIR` | Yes | `app.py`, `modules/agent_mod.py` |
 | `SQLITE_DB_PATH` | Yes | `mcps/mcp_sql.py` |
 | `DOWNLOADS_DIR` | Yes | `mcps/mcp_downloader.py` |
+| `CHROMA_DIR` | No | `modules/embedder.py` (default: `./datastore/internal/chroma`) |
 
 ---
 
-## 15. Key Code Snippets
+## 16. Key Code Snippets
 
 ### Initialize Agent (from `app.py` lifespan)
 
@@ -593,6 +739,36 @@ llm = create_llm(
 )
 ```
 
+### Create Embeddings (from `modules/embedder.py`)
+
+```python
+embeddings = create_embeddings(
+    provider=os.getenv("EMBEDDING_PROVIDER", "openai"),
+    model_name=os.getenv("OPENAI_EMBEDDINGS_MODEL"),
+)
+```
+
+### Embed a File (from `modules/embedder.py`)
+
+```python
+result = embed_and_store(
+    source="./datastore/docs/report.pdf",
+    collection_name="reports",
+)
+# Returns: {"ok": True, "chunks": 47, "collection": "reports", "persist_dir": "./datastore/internal/chroma"}
+```
+
+### Query Embedded Data (from `modules/embedder.py`)
+
+```python
+result = query_documents(
+    query="What are the main findings?",
+    collection_name="reports",
+    k=5,
+)
+# Returns: {"ok": True, "query": "...", "results": [{"content": "...", "metadata": {...}}]}
+```
+
 ### Register MCP Tools (from `mcps/__init__.py`)
 
 ```python
@@ -614,4 +790,4 @@ MCP_TOOLS = {
 
 **End of AGENTS.md**
 
-> Keep this file updated when adding new tools, MCP servers, or changing architecture.
+> Keep this file updated when adding new tools, MCP servers, embedding providers, or changing architecture.

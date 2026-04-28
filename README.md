@@ -8,6 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?logo=langchain&logoColor=white)](https://www.langchain.com/)
+[![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromadb&logoColor=white)](https://www.trychroma.com/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 [Quick Start](#-quick-start) · [Architecture](#-architecture) · [API Docs](#-api-reference) · [Contributing](#-contributing)
@@ -28,6 +29,7 @@ Think of it as giving your AI **hands** — instead of just generating text, it 
 - **Search the web** for live information
 - **Send emails** and **schedule tasks**
 - **Index documents** for AI-powered semantic search
+- **Embed & search** any file (PDF, MD, CSV, DOCX, etc.) or **webpage URL** using local ChromaDB vector store
 - Check **weather** and **timezones**
 
 > **MCP (Model Context Protocol)** is an open standard that lets AI models securely connect to external data sources and tools. MCP Hub implements this standard using [FastMCP](https://github.com/jlowin/fastmcp) servers and LangChain adapters.
@@ -37,6 +39,10 @@ Think of it as giving your AI **hands** — instead of just generating text, it 
 ```
 You: "Create a users table with name, age, and email columns"
 AI:  ✅ Created table 'users' with columns: name (TEXT), age (INTEGER), email (TEXT)
+
+You: "Embed this PDF and tell me the key findings"
+AI:  📄 Embedded report.pdf → 47 chunks stored in ChromaDB
+     🔍 Based on the document, the key findings are...
 
 You: "Search the web for latest AI breakthroughs"
 AI:  🔍 Found 5 results... [summarizes live web search results]
@@ -57,8 +63,10 @@ AI:  📧 Email queued! Job ID: abc-123-xyz (check status anytime)
 | **Web Framework** | [FastAPI](https://fastapi.tiangolo.com/) | High-performance async API & web UI |
 | **AI Framework** | [LangChain](https://www.langchain.com/) + [LangGraph](https://langchain-ai.github.io/langgraph/) | LLM orchestration & agent logic |
 | **MCP Protocol** | [FastMCP](https://github.com/jlowin/fastmcp) + [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) | Model Context Protocol servers |
+| **Vector Store** | [ChromaDB](https://www.trychroma.com/) + [langchain-chroma](https://github.com/langchain-ai/langchain-chroma) | Local embedding storage & semantic search |
 | **Background Jobs** | [Huey](https://huey.readthedocs.io/) + [Redis/Valkey](https://valkey.io/) | Async task queue & scheduling |
 | **LLM Providers** | OpenAI, Google Gemini, Groq, OpenRouter, NVIDIA | Multi-provider AI model support |
+| **Embedding Providers** | OpenAI, Google, OpenRouter, NVIDIA | Multi-provider embedding model support |
 | **Database** | SQLite3 | Lightweight, serverless relational DB |
 | **Package Manager** | [uv](https://docs.astral.sh/uv/) | Ultra-fast Python package management |
 | **Container** | Docker + Docker Compose | Production-ready containerization |
@@ -109,7 +117,10 @@ AI:  📧 Email queued! Job ID: abc-123-xyz (check status anytime)
 │ time         │  │ get_system_time │  │ NVIDIA       │
 │ pageindex    │  │ weather_tool    │  └──────────────┘
 │ url-downloader│  │ file_management │
-└──────────────┘  └─────────────────┘
+└──────────────┘  │ embed_file      │
+                  │ query_embedded  │
+                  │ chroma_manage   │
+                  └─────────────────┘
         │                   │
         └───────────┬───────┘
                     │
@@ -131,7 +142,7 @@ AI:  📧 Email queued! Job ID: abc-123-xyz (check status anytime)
 2. **FastAPI** receives it and passes to `MCPAgentModule`
 3. **Agent** loads the system prompt, chat history, and available tools
 4. **LLM** reasons about which tools to call and in what order
-5. **Tools** execute — some are local (file ops), some call external MCP servers, some queue background jobs
+5. **Tools** execute — some are local (file ops), some call external MCP servers, some queue background jobs, some embed & search documents
 6. **Response** streams back to the user with results, job IDs for async tasks, or direct answers
 
 ---
@@ -158,6 +169,10 @@ Edit `.env` and add your API keys:
 MODEL_PROVIDER=openai
 OPENAI_API_KEY=sk-your-key-here
 OPENAI_MODEL=gpt-4o
+
+# Choose your embedding provider (for ChromaDB vector search)
+EMBEDDING_PROVIDER=openai
+OPENAI_EMBEDDINGS_MODEL=text-embedding-3-small
 
 # Optional but recommended
 PAGE_INDEX_API_KEY=your-pageindex-key
@@ -189,10 +204,12 @@ You should see the MCP Hub chat interface with a status indicator showing **Onli
 
 ### Step 4: Try Your First Commands
 
-> 💡 Click any suggestion pill in the UI, or type:
+> Click any suggestion pill in the UI, or type:
 
 - `"What tools do you have?"`
 - `"Create a table called todos with title TEXT and done INTEGER"`
+- `"Embed this file: ./datastore/docs/report.pdf"`
+- `"What are the main findings in the embedded document?"`
 - `"Search the web for Python 3.13 new features"`
 - `"What's the weather in Tokyo?"`
 
@@ -249,17 +266,27 @@ mcp-hub/
 │   ├── __init__.py                 # MCP_TOOLS registry & configuration
 │   ├── mcp_sql.py                  # SQLite MCP server (port 8000)
 │   ├── mcp_fs.py                   # Filesystem MCP server (port 8005)
-│   └── mcp_downloader.py         # Downloader MCP server (port 8010)
+│   └── mcp_downloader.py          # Downloader MCP server (port 8010)
 │
 ├── modules/                        # Core application modules
 │   ├── __init__.py                 # Module exports
 │   ├── agent_mod.py                # MCPAgentModule: orchestrates LLM + tools
 │   ├── agent_utils.py              # LLM factory (OpenAI, Google, Groq, OpenRouter)
-│   ├── tools.py                    # LangChain tools (background tasks, weather, files)
+│   ├── embedder.py                 # Embedding factory + ChromaDB pipeline
 │   ├── logger.py                   # Colorized logging utility
-│   └── system_prompts/
-│       ├── general_prompt.py       # Main AI system instructions
-│       └── local_mcp_sqlit3_prompt.py  # SQLite-specific prompt
+│   │
+│   ├── tools/                      # LangChain tools (split by category)
+│   │   ├── __init__.py             # Re-exports all tools + get_vectorless_tools()
+│   │   ├── background.py           # Task queue tools (index, email, schedule, sleep)
+│   │   ├── datetime.py             # System datetime tool
+│   │   ├── embedding.py            # ChromaDB tools (embed, query, manage)
+│   │   ├── file_management.py      # File ops (read, write, copy, move, delete)
+│   │   └── weather.py              # OpenWeatherMap tool
+│   │
+│   ├── system_prompts/
+│   │   ├── general_prompt.py       # Main AI system instructions
+│   │   └── local_mcp_sqlit3_prompt.py  # SQLite-specific prompt
+│   │
 │   └── sqlite3/
 │       ├── sqlite_1.py             # SQLiteUtils (used by MCP SQL server)
 │       ├── sqlite_2.py             # SQLiteManager (alternative impl)
@@ -273,9 +300,72 @@ mcp-hub/
 │   └── index.html                  # Dark glassmorphism chat UI
 │
 └── datastore/                      # Persistent data storage
-    ├── internal/                   # SQLite DB, chat history, logs
+    ├── internal/                   # SQLite DB, chat history, ChromaDB
+    │   └── chroma/                 # Vector embeddings (auto-created)
     └── downloads/                  # Downloaded files
 ```
+
+---
+
+## Embedding & Vector Search
+
+MCP Hub includes a built-in **local embedding pipeline** powered by ChromaDB. Embed any file or webpage, then search it semantically.
+
+### Supported File Formats
+
+| Format | Extensions | Loader |
+|--------|-----------|--------|
+| PDF | `.pdf` | PyPDFLoader |
+| Markdown | `.md`, `.markdown` | UnstructuredMarkdownLoader |
+| CSV | `.csv` | CSVLoader |
+| Text | `.txt` | TextLoader |
+| JSON | `.json` | JSONLoader |
+| Word | `.docx`, `.doc` | Docx2txtLoader |
+| HTML | `.html`, `.htm` | UnstructuredHTMLLoader |
+| XML | `.xml` | UnstructuredXMLLoader |
+| Web URLs | `http://...`, `https://...` | WebBaseLoader |
+
+### How It Works
+
+```
+File/URL → Load → Chunk (1000 chars, 200 overlap) → Embed → Store in ChromaDB
+                                                           ↓
+Query → Embed query → Similarity search → Return top-k chunks
+```
+
+### Example Usage
+
+```bash
+# Embed a PDF
+You: "Embed ./datastore/docs/quarterly-report.pdf"
+AI:  ✅ Stored 47 chunks in ChromaDB collection 'default'
+
+# Search embedded content
+You: "What does the report say about revenue?"
+AI:  🔍 Based on the embedded document, Q3 revenue grew 23%...
+
+# Embed a webpage
+You: "Embed https://example.com/article"
+AI:  ✅ Stored 12 chunks in ChromaDB collection 'default'
+
+# Manage collections
+You: "List all my embedded collections"
+AI:  📚 Collections: default (47 items), reports (120 items)
+
+You: "Clear the default collection"
+AI:  🗑️ Cleared 47 items from collection 'default'
+```
+
+### Embedding Providers
+
+| Provider | Default Model | Env Var |
+|----------|--------------|---------|
+| **OpenAI** | `text-embedding-3-small` | `OPENAI_EMBEDDINGS_MODEL` |
+| **Google** | — | `GOOGLE_EMBEDDINGS_MODEL` |
+| **OpenRouter** | `openai/text-embedding-3-small` | `OPEN_ROUTER_EMBEDDINGS_MODEL` |
+| **NVIDIA** | — | `NVIDIA_EMBEDDINGS_MODEL` |
+
+Set `EMBEDDING_PROVIDER` in `.env` to choose. ChromaDB data persists at `./datastore/internal/chroma/`.
 
 ---
 
@@ -297,6 +387,7 @@ mcp-hub/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `EMBEDDING_PROVIDER` | Embedding model provider | `openai` |
 | `MODEL_TEMPERATURE` | Creativity/randomness (0–1) | `0.4` |
 | `MAX_TOKENS` | Max response length | `1500` |
 | `PAGE_INDEX_API_KEY` | PageIndex API for document search | — |
@@ -305,6 +396,7 @@ mcp-hub/
 | `OPENWEATHERMAP_API_KEY` | Weather API key | — |
 | `DATASTORE_DIR` | Root data directory | `./datastore` |
 | `SQLITE_DB_PATH` | SQLite database file path | `./datastore/internal/sqlite3.db` |
+| `CHROMA_DIR` | ChromaDB persist directory | `./datastore/internal/chroma` |
 
 ### Provider-Specific Models
 
@@ -334,9 +426,7 @@ These tools execute immediately and return results directly to the LLM.
 | `pageindex` | HTTP | Query indexed documents using semantic AI search |
 | `url-downloader` | stdio | Alternative downloader with custom output path |
 
-### LangChain Tools (Background & Utility)
-
-These tools may queue async jobs or perform utility functions.
+### LangChain Tools — Background & Scheduling
 
 | Tool | Type | What It Does |
 |------|------|--------------|
@@ -349,7 +439,22 @@ These tools may queue async jobs or perform utility functions.
 | `get_system_datetime` | Utility | Get current system time (critical for scheduling) |
 | `weather_tool` | Utility | Get weather for any location via OpenWeatherMap |
 | `sleep` | Background | Queue a sleep/delay task for testing |
-| `file_management` | Utility | Read, write, copy, move, delete files via FileManagementToolkit |
+
+### LangChain Tools — Embedding & Vector Store (ChromaDB)
+
+| Tool | Type | What It Does |
+|------|------|--------------|
+| `embed_file` | Embedding | Embed a file or URL into local ChromaDB. Supports PDF, MD, CSV, TXT, JSON, DOCX, HTML, XML, and web URLs. |
+| `query_embedded_data` | Retrieval | Semantic search over embedded documents. Returns top-k matching chunks with metadata. |
+| `list_chroma_collections` | Management | List all ChromaDB collections and their document counts |
+| `clear_chroma_collection` | Management | Remove all documents from a collection (keeps the collection) |
+| `delete_chroma_collection` | Management | Permanently delete an entire collection and its data |
+
+### LangChain Tools — File Management
+
+From `FileManagementToolkit` (sandboxed to `DATASTORE_DIR`):
+
+`read_file`, `write_file`, `copy_file`, `move_file`, `delete_file`, `list_directory`, `make_directory`, `move_directory`
 
 ### SQLite Operations Detail
 
@@ -434,9 +539,10 @@ docker compose restart app
 
 ### Adding a Custom LangChain Tool
 
-Edit `modules/tools.py`:
+Create or edit a file in `modules/tools/`:
 
 ```python
+# modules/tools/my_tool.py
 from langchain.tools import tool
 
 @tool("my_awesome_tool")
@@ -445,7 +551,7 @@ def my_awesome_tool(param: str) -> dict:
     return {"result": "success", "param": param}
 ```
 
-Then add it to `get_vectorless_tools()` in the same file.
+Then import and add it to `get_vectorless_tools()` in `modules/tools/__init__.py`.
 
 ### Adding a New Huey Background Task
 
@@ -515,7 +621,7 @@ docker compose down && docker compose up -d
 
 ### "Tool not found" or MCP errors
 
-- Verify the tool is registered in `mcps/__init__.py` or `modules/tools.py`
+- Verify the tool is registered in `mcps/__init__.py` or `modules/tools/`
 - Rebuild containers: `docker compose build --no-cache`
 - Check MCP server health: `curl http://localhost:8000/health`
 
@@ -535,6 +641,12 @@ docker compose exec valkey valkey-cli -a testpass ping
 - Check Huey logs: `docker compose logs huey`
 - Verify Redis URL in `.env` is correct
 
+### Embedding / ChromaDB issues
+
+- ChromaDB data persists at `./datastore/internal/chroma/` — deleting this folder resets embeddings
+- Ensure `EMBEDDING_PROVIDER` is set and the corresponding API key is valid
+- Check `list_chroma_collections` to verify collections exist
+
 ---
 
 ## Security Notes
@@ -544,6 +656,7 @@ docker compose exec valkey valkey-cli -a testpass ping
 - The app container runs in an isolated Docker network (`caddy`)
 - Database is stored locally in `datastore/` (add to backups)
 - File system access is sandboxed to `DATASTORE_DIR`
+- ChromaDB embeddings are stored locally — no data leaves your server (except API calls to embedding providers)
 - Use strong Redis passwords in production (change `testpass` in `compose.yml`)
 
 ---
@@ -564,12 +677,13 @@ We welcome contributions! Here's how to get started:
 - Use type hints where practical
 - Add docstrings to public functions
 - Keep functions focused and modular
+- Place new tools in the appropriate `modules/tools/` file
 
 ---
 
 ## License
 
-[MIT License](LICENSE) — Built with FastMCP, LangChain, FastAPI, and Huey.
+[MIT License](LICENSE) — Built with FastMCP, LangChain, FastAPI, ChromaDB, and Huey.
 
 ---
 

@@ -1,27 +1,20 @@
-"""LangChain tools for document indexing and querying using PageIndex."""
+"""Background task and scheduling tools."""
 
-from datetime import datetime
-from dotenv import load_dotenv
+from typing import Any, Dict, List, Optional, Union
+
 from langchain.tools import tool
-from langchain_community.agent_toolkits import FileManagementToolkit
-from langchain_community.tools.openweathermap.tool import OpenWeatherMapQueryRun
-from langchain_community.utilities import OpenWeatherMapAPIWrapper
-from pageindex import PageIndexClient
-from typing import List, Union, Optional, Dict, Any
 
-from modules import get_logger
+from modules.logger import get_logger
 from tasks import (
-    index_documents_task,
-    test_sleep_task,
-    get_job_status,
     get_all_tasks,
-    send_email_task,
+    get_job_status,
+    index_documents_task,
     schedule_task,
+    send_email_task,
+    test_sleep_task,
 )
 
 logger = get_logger(__name__)
-
-load_dotenv()
 
 
 @tool("get_background_task_status")
@@ -184,7 +177,8 @@ def schedule_task_tool(
             - task: Name of the scheduled task
     """
     logger.info(
-        f"[schedule_task_tool] task: {task_name}, task_args: {task_args}, task_kwargs: {task_kwargs}, delay: {delay}, eta: {eta}"
+        f"[schedule_task_tool] task: {task_name}, task_args: {task_args}, "
+        f"task_kwargs: {task_kwargs}, delay: {delay}, eta: {eta}"
     )
     result = schedule_task(
         task_name=task_name,
@@ -195,68 +189,3 @@ def schedule_task_tool(
     )
     logger.info(f"[schedule_task_tool] result: {result}")
     return result
-
-
-@tool("get_system_datetime")
-def get_system_datetime_tool() -> Dict[str, Any]:
-    """Get the current system date and time in a readable format.
-
-    This tool returns the system's local time. ALWAYS use this tool for any
-    time-based activities that require knowing the current time or calculating
-    durations, delays, or future scheduling times. Do NOT rely on external
-    time APIs or assume the time - always fetch it from this tool first.
-
-    Returns:
-        Dict containing:
-            - datetime: Readable datetime string (e.g., "2026-04-10 23:00:00")
-            - iso: ISO8601 formatted datetime
-            - timestamp: Unix timestamp
-            - timezone: System timezone (e.g., "Asia/Kolkata")
-    """
-    now = datetime.now()
-    logger.info(f"[get_system_datetime_tool] now: {now}")
-    return {
-        "datetime": now.strftime("%Y-%m-%d %H:%M:%S"),
-        "iso": now.isoformat(),
-        "timestamp": int(now.timestamp()),
-        "timezone": str(now.astimezone().tzinfo)
-        if now.astimezone().tzinfo
-        else "Unknown",
-    }
-
-
-# Weather Tool
-weather_wrapper = OpenWeatherMapAPIWrapper()
-weather_tool = OpenWeatherMapQueryRun(api_wrapper=weather_wrapper)
-
-# File Management Tools
-from os import getenv
-
-working_directory = getenv("DATASTORE_DIR")
-toolkit = FileManagementToolkit(root_dir=working_directory)
-file_management_tools = toolkit.get_tools()
-
-
-# ============================================
-# Vectorless Tools (Background Tasks)
-# ============================================
-
-
-def get_vectorless_tools() -> List:
-    """Get all vectorless/index tools as a list.
-
-    Returns:
-        List of LangChain tool functions for background tasks.
-    """
-    return [
-        index_files_tool,
-        index_urls_tool,
-        sleep_tool,
-        get_background_task_status_tool,
-        get_all_tasks_tool,
-        send_email_task_tool,
-        schedule_task_tool,
-        get_system_datetime_tool,
-        weather_tool,
-        *file_management_tools,
-    ]
