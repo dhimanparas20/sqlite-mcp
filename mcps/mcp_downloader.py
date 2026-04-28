@@ -294,7 +294,7 @@ def list_downloads() -> dict[str, Any]:
             files.append(
                 {
                     "name": f.name,
-                    "path": str(f.relative_to(Path(__file__).parent.parent)),
+                    "path": str(f),
                     "size_bytes": stat.st_size,
                     "size_readable": _format_size(stat.st_size),
                     "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
