@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 from typing import List, Union, Dict, Any
 
 import requests
@@ -101,8 +102,9 @@ def index_documents_task(
             if source.startswith(("http://", "https://")):
                 logger.info(f"[index_documents_task] Downloading {source}")
                 filename = source.split("/")[-1]
-                local_path = os.path.join("../data", filename)
-                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                downloads_dir = Path(os.getenv("DOWNLOADS_DIR", "./datastore/downloads"))
+                downloads_dir.mkdir(parents=True, exist_ok=True)
+                local_path = str(downloads_dir / filename)
 
                 if not os.path.exists(local_path):
                     response = requests.get(source, timeout=60)

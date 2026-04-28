@@ -46,7 +46,7 @@ def _safe_filename(url: str) -> str:
     if not path or path == "/":
         filename = f"download_{int(datetime.now().timestamp())}"
     else:
-        filename = os.path.basename(path)
+        filename = Path(path).name
         if not filename:
             filename = f"download_{int(datetime.now().timestamp())}"
 
@@ -115,7 +115,7 @@ async def _download_with_progress(
             return {
                 "ok": True,
                 "filename": final_path.name,
-                "path": str(final_path.relative_to(Path(__file__).parent.parent)),
+                "path": str(final_path),
                 "size_bytes": downloaded,
                 "size_readable": _format_size(downloaded),
                 "content_type": content_type,
@@ -206,7 +206,7 @@ async def download_file(
                         "ok": True,
                         "filename": final_path.name,
                         "path": str(
-                            final_path.relative_to(Path(__file__).parent.parent)
+                            str(final_path)
                         ),
                         "size_bytes": downloaded,
                         "size_readable": _format_size(downloaded),
@@ -332,7 +332,7 @@ def get_download_info(filename: str) -> dict[str, Any]:
     return {
         "ok": True,
         "name": file_path.name,
-        "path": str(file_path.relative_to(Path(__file__).parent.parent)),
+        "path": str(file_path),
         "absolute_path": str(file_path),
         "size_bytes": stat.st_size,
         "size_readable": _format_size(stat.st_size),
@@ -418,7 +418,7 @@ def get_download_dir() -> dict[str, Any]:
     return {
         "ok": True,
         "path": str(DOWNLOAD_DIR),
-        "relative_path": str(DOWNLOAD_DIR.relative_to(Path(__file__).parent.parent)),
+        "relative_path": str(DOWNLOAD_DIR),
         "exists": True,
         "total_size_bytes": total_size,
         "total_size_readable": _format_size(total_size),
